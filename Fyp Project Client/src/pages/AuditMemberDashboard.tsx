@@ -1,0 +1,1 @@
+export { AuditTeamDashboard as default } from './AuditTeamDashboard';

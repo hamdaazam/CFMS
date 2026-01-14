@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ensure proper text direction (left-to-right) globally */
+* {
+  direction: ltr;
+}
+
+/* Explicitly enforce LTR for all input and textarea elements */
+input,
+textarea,
+select {
+  direction: ltr !important;
+  text-align: left !important;
+  /* plaintext can flip direction based on the first strong character; keep stable LTR */
+  unicode-bidi: normal;
+}
+
+/* Ensure all form controls maintain LTR */
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="tel"],
+input[type="url"],
+textarea {
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+/* Style tables in contentEditable areas */
+[contenteditable] table,
+.richtext-editor table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5rem 0;
+  border: 1px solid #d1d5db;
+}
+
+[contenteditable] table td,
+[contenteditable] table th,
+.richtext-editor table td,
+.richtext-editor table th {
+  border: 1px solid #d1d5db;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+[contenteditable] table th,
+.richtext-editor table th {
+  background-color: #f3f4f6;
+  font-weight: 600;
+}
+
+/* Ensure table rows are visible */
+[contenteditable] table tr,
+.richtext-editor table tr {
+  border-bottom: 1px solid #d1d5db;
+}
+
+/* Ensure contentEditable areas have proper text flow */
+[contenteditable] {
+  direction: ltr;
+  text-align: left;
+  /* plaintext can auto-flip direction based on content; keep stable LTR */
+  unicode-bidi: normal;
+  /* Ensure proper word wrapping to prevent horizontal extension */
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+/* Placeholder styling for contentEditable */
+[contenteditable]:empty:before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Ensure richtext-editor wrapper has proper width constraints */
+.richtext-editor {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive utilities */
+@media (max-width: 640px) {
+  /* Hide elements on mobile */
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+@media (min-width: 641px) {
+  /* Hide elements on desktop */
+  .hide-desktop {
+    display: none !important;
+  }
+}
+
+/* Responsive table wrapper */
+.table-responsive {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Card responsive padding */
+@media (max-width: 640px) {
+  .card-padding {
+    padding: 1rem;
+  }
+}
+
+@media (min-width: 641px) {
+  .card-padding {
+    padding: 1.5rem;
+  }
+}
+
+/* Ensure all child elements in richtext-editor also wrap properly */
+.richtext-editor * {
+  max-width: 100%;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
