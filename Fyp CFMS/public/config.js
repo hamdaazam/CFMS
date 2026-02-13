@@ -1,8 +1,6 @@
 // Runtime configuration for API URL
-// Update this file with your backend API URL
-// This file will be copied to dist folder during build
+// After deploying, update the API_BASE_URL below with your actual backend URL
+// Example: 'https://cfms-backend.onrender.com/api'
 window.APP_CONFIG = {
-  API_BASE_URL: 'http://127.0.0.1:8000/api' // Local development backend URL
+  API_BASE_URL: 'https://cfms-backend.onrender.com/api'
 };
-
-

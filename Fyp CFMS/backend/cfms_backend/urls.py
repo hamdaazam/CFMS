@@ -39,6 +39,7 @@ urlpatterns = [
     path('api/course-folders/', include('course_folders.urls')),
 ]
 
+# Serve media files (both dev and production - whitenoise handles static files)
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

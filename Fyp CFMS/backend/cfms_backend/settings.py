@@ -5,13 +5,12 @@ Django settings for cfms_backend project.
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
+import os
 
 # Initialize PyMySQL as MySQLdb replacement BEFORE Django setup
-# This must be done before any Django database operations
+# Only needed when using MySQL, safe to run always
 import pymysql
-# Force PyMySQL to be used instead of mysqlclient
 pymysql.install_as_MySQLdb()
-# Override version to satisfy Django's mysqlclient version check
 pymysql.version_info = (2, 2, 1, "final", 0)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -24,6 +23,11 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-produc
 DEBUG = config('DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
+
+# Render.com sets RENDER=true in environment
+IS_RENDER = 'RENDER' in os.environ
+if IS_RENDER:
+    ALLOWED_HOSTS.append('.onrender.com')
 
 # Application definition
 INSTALLED_APPS = [
@@ -55,6 +59,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -85,11 +90,23 @@ TEMPLATES = [
 WSGI_APPLICATION = 'cfms_backend.wsgi.application'
 
 # Database
-# Use MySQL if DB_PASSWORD is set, otherwise use SQLite for easy local development
+# Priority: DATABASE_URL (Render/production) > DB_PASSWORD (MySQL) > SQLite (local dev)
+import dj_database_url
+
+DATABASE_URL = config('DATABASE_URL', default=None)
 DB_PASSWORD = config('DB_PASSWORD', default=None)
 
-if DB_PASSWORD:
-    # MySQL Configuration (for production or when MySQL is configured)
+if DATABASE_URL:
+    # PostgreSQL via DATABASE_URL (Render / production)
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+elif DB_PASSWORD:
+    # MySQL Configuration (for local MySQL setup)
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -141,6 +158,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media files
 MEDIA_URL = 'media/'
@@ -172,11 +190,17 @@ SIMPLE_JWT = {
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }
 
-# CORS Settings - Allow all origins in development
-CORS_ALLOW_ALL_ORIGINS = True  # Simplified for local development
+# CORS Settings
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
-CORS_ALLOW_CREDENTIALS = True
+# CSRF trusted origins for production
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='http://localhost:5173,http://127.0.0.1:5173'
+).split(',')
+if IS_RENDER:
+    CSRF_TRUSTED_ORIGINS.append('https://*.onrender.com')
 
 # Additional CORS settings for better compatibility
 CORS_ALLOW_HEADERS = [
