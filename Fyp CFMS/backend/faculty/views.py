@@ -100,7 +100,9 @@ class FacultyViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         """
-        Completely delete faculty and associated user from database
+        Hard delete faculty, associated user, and related data from database.
+        The post_delete signal on Faculty handles cascading hard deletes
+        (coordinator assignments + user account).
         """
         try:
             faculty = self.get_object()
@@ -110,18 +112,16 @@ class FacultyViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            user = faculty.user
             faculty_name = faculty.user.full_name if faculty.user else 'Unknown'
             
-            # Delete the faculty record (this will cascade delete due to OneToOneField)
+            # Hard delete the faculty record.
+            # The post_delete signal will also hard delete:
+            #   - All CourseCoordinatorAssignment records for this user
+            #   - The associated User account
             faculty.delete()
             
-            # Also delete the associated user account
-            if user:
-                user.delete()
-            
             return Response(
-                {'message': f'Faculty "{faculty_name}" and associated user deleted successfully'},
+                {'message': f'Faculty "{faculty_name}" and associated user permanently deleted'},
                 status=status.HTTP_200_OK
             )
         except Exception as e:

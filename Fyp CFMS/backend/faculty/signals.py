@@ -6,16 +6,18 @@ from courses.models import CourseCoordinatorAssignment
 
 
 @receiver(post_delete, sender=Faculty)
-def deactivate_user_when_faculty_removed(sender, instance, **kwargs):
-    """Ensure removed faculty accounts cannot continue to access the system."""
+def hard_delete_user_when_faculty_removed(sender, instance, **kwargs):
+    """Hard delete the associated user account and related data when faculty is removed."""
     user = getattr(instance, 'user', None)
     if not user:
         return
 
-    # Mark user inactive to block authentication attempts
-    if user.is_active:
-        user.is_active = False
-        user.save(update_fields=['is_active'])
+    # Hard delete any remaining coordinator assignments linked to the account
+    CourseCoordinatorAssignment.objects.filter(coordinator=user).delete()
 
-    # Soft-disable any remaining coordinator assignments linked to the account
-    CourseCoordinatorAssignment.objects.filter(coordinator=user, is_active=True).update(is_active=False)
+    # Hard delete the associated user account
+    try:
+        user.delete()
+    except Exception:
+        # User may have already been deleted (e.g. from the view's destroy method)
+        pass
