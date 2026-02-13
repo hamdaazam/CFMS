@@ -204,9 +204,48 @@ export const FacultyDashboard: React.FC = () => {
     return ACCEPTED_STATUSES.includes(status as (typeof ACCEPTED_STATUSES)[number]);
   }).length;
 
+  // Helper function to check if folder has final term content
+  const hasFinalTermContent = (folder: any): boolean => {
+    try {
+      // Use backend-provided flag if available (most reliable)
+      if (folder.has_final_term_content !== undefined) {
+        return folder.has_final_term_content === true;
+      }
+      
+      // Fallback: check files directly
+      const has_required_files = !!(
+        folder.project_report_file && 
+        folder.course_result_file && 
+        folder.folder_review_report_file
+      );
+      
+      return has_required_files;
+    } catch (e) {
+      console.error('Error checking final term content:', e);
+      return false;
+    }
+  };
+
   const pendingFoldersCount = folders.filter((folder) => {
     const status = folder.status || 'DRAFT';
-    return PENDING_STATUSES.includes(status as (typeof PENDING_STATUSES)[number]);
+    
+    // Include standard pending statuses
+    if (PENDING_STATUSES.includes(status as (typeof PENDING_STATUSES)[number])) {
+      return true;
+    }
+    
+    // Include APPROVED_BY_HOD folders that are ready for second submission
+    // (first approval after mid-term - show in pending if no final term content yet)
+    if (status === 'APPROVED_BY_HOD') {
+      const firstActivityCompleted = folder.first_activity_completed === true || folder.first_activity_completed === 'true';
+      
+      if (firstActivityCompleted) {
+        // First approval completed - show in pending if final term content is not yet added
+        return !hasFinalTermContent(folder);
+      }
+    }
+    
+    return false;
   }).length;
 
   const stats: Array<{ title: string; value: string | number; buttonText?: string; onButtonClick?: () => void }> = [

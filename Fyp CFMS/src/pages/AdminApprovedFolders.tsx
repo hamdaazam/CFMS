@@ -22,8 +22,17 @@ interface CourseFolder {
   };
   faculty: number;
   faculty_details: {
-    full_name: string;
-    email: string;
+    user?: {
+      full_name: string;
+      email: string;
+    };
+    user_details?: {
+      full_name: string;
+      email: string;
+    };
+    // Fallback for direct access
+    full_name?: string;
+    email?: string;
   };
   term: number;
   term_details: {
@@ -256,11 +265,17 @@ export const AdminApprovedFolders: React.FC = () => {
   const filteredFolders = folders.filter(folder => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
+    const instructorName = (folder.faculty_details?.user?.full_name || 
+                           folder.faculty_details?.user_details?.full_name || 
+                           folder.faculty_details?.full_name || '').toLowerCase();
+    const instructorEmail = (folder.faculty_details?.user?.email || 
+                            folder.faculty_details?.user_details?.email || 
+                            folder.faculty_details?.email || '').toLowerCase();
     return (
       folder.course_details.code.toLowerCase().includes(search) ||
       folder.course_details.title.toLowerCase().includes(search) ||
-      folder.faculty_details.full_name.toLowerCase().includes(search) ||
-      folder.faculty_details.email.toLowerCase().includes(search) ||
+      instructorName.includes(search) ||
+      instructorEmail.includes(search) ||
       folder.department_details.name.toLowerCase().includes(search) ||
       folder.section.toLowerCase().includes(search)
     );
@@ -439,10 +454,16 @@ export const AdminApprovedFolders: React.FC = () => {
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="text-sm font-medium text-gray-900">
-                                {folder.faculty_details.full_name}
+                                {folder.faculty_details?.user?.full_name || 
+                                 folder.faculty_details?.user_details?.full_name || 
+                                 folder.faculty_details?.full_name || 
+                                 'N/A'}
                               </div>
                               <div className="text-sm text-gray-500">
-                                {folder.faculty_details.email}
+                                {folder.faculty_details?.user?.email || 
+                                 folder.faculty_details?.user_details?.email || 
+                                 folder.faculty_details?.email || 
+                                 ''}
                               </div>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">

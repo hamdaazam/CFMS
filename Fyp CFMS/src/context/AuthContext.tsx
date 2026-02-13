@@ -41,7 +41,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const refreshMe = async () => {
       const token = localStorage.getItem('access_token');
-      if (!token) return;
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       try {
         const res = await authAPI.getCurrentUser();
         const userData = res.data as User;
@@ -50,6 +53,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setUser(userData);
       } catch {
         // ignore; keep existing cached user
+      } finally {
+        if (mounted) setLoading(false);
       }
     };
 
@@ -59,13 +64,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (storedUser) {
       try {
         setUser(JSON.parse(storedUser));
+        setLoading(false); // Don't wait for API call if we have cached user
       } catch {
         // ignore corrupted cache
         setUser(null);
+        setLoading(false);
       }
+    } else {
+      setLoading(false); // No cached user, set loading to false immediately
     }
 
-    refreshMe().finally(() => setLoading(false));
+    // Refresh user data in background (non-blocking)
+    refreshMe();
 
     // When conveners assign audit/coordinator work, other users need to pick up new capabilities.
     // We already broadcast `foldersUpdated` in the UI; use it to refresh /auth/me automatically.

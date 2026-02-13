@@ -164,6 +164,55 @@ class CourseAllocationViewSet(viewsets.ModelViewSet):
         })
 
 
+class CourseCoordinatorAssignmentViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing CourseCoordinatorAssignment CRUD operations."""
+    queryset = CourseCoordinatorAssignment.objects.all()
+    serializer_class = CourseCoordinatorAssignmentSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['coordinator', 'course', 'department', 'program', 'term', 'is_active']
+    search_fields = ['coordinator__full_name', 'coordinator__email', 'course__code', 'course__title']
+    ordering_fields = ['assigned_at', 'course__code']
+    ordering = ['-assigned_at']
+
+    def get_queryset(self):
+        # By default, only show active assignments
+        queryset = CourseCoordinatorAssignment.objects.filter(is_active=True)
+        
+        # Apply filters from query params
+        for field in ['coordinator', 'course', 'department', 'program', 'term']:
+            value = self.request.query_params.get(field)
+            if value:
+                queryset = queryset.filter(**{field: value})
+        
+        # Allow explicit query for inactive assignments
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None and is_active.lower() == 'false':
+            queryset = CourseCoordinatorAssignment.objects.filter(is_active=False)
+        
+        return queryset.select_related('coordinator', 'course', 'department', 'program', 'term', 'assigned_by')
+
+    def perform_create(self, serializer):
+        """Set assigned_by to current user when creating."""
+        serializer.save(assigned_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete coordinator assignment."""
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Only admin can delete coordinator assignments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        assignment = self.get_object()
+        assignment.delete()
+        
+        return Response(
+            {'message': 'Coordinator assignment deleted successfully'},
+            status=status.HTTP_204_NO_CONTENT
+        )
+
+
 class IsAdminOrStaff(permissions.BasePermission):
     """
     Allow only admin/staff users (is_staff=True or role='ADMIN')
@@ -453,15 +502,16 @@ class CourseAllocationExcelUploadView(APIView):
                 
                 # Find faculty by name or email
                 faculty = None
+                faculty_error = None
+                
+                # Strategy 1: Try exact email match if faculty_email is provided
                 if faculty_email:
                     try:
                         user = User.objects.get(email__iexact=faculty_email)
                         if hasattr(user, 'faculty_profile'):
                             faculty = user.faculty_profile
                         else:
-                            skipped += 1
-                            errors.append({'row': row_num, 'error': f'User with email "{faculty_email}" is not a faculty member'})
-                            continue
+                            faculty_error = f'User with email "{faculty_email}" is not a faculty member'
                     except User.DoesNotExist:
                         pass
                     except User.MultipleObjectsReturned:
@@ -469,36 +519,146 @@ class CourseAllocationExcelUploadView(APIView):
                         if user and hasattr(user, 'faculty_profile'):
                             faculty = user.faculty_profile
                 
+                # Strategy 2: If faculty_name contains '@', try to match as email (partial or full)
+                if not faculty and faculty_name and '@' in faculty_name:
+                    # Try exact email match first
+                    try:
+                        user = User.objects.get(email__iexact=faculty_name)
+                        if hasattr(user, 'faculty_profile'):
+                            faculty = user.faculty_profile
+                    except User.DoesNotExist:
+                        # Try partial email match (contains)
+                        try:
+                            email_prefix = faculty_name.split('@')[0]
+                            # First try with department filter if available
+                            if department:
+                                user = User.objects.filter(
+                                    email__icontains=email_prefix,
+                                    faculty_profile__department=department
+                                ).first()
+                                if user and hasattr(user, 'faculty_profile'):
+                                    faculty = user.faculty_profile
+                            
+                            # If not found, try without department filter
+                            if not faculty:
+                                matches = User.objects.filter(email__icontains=email_prefix)
+                                if matches.count() == 1:
+                                    user = matches.first()
+                                    if user and hasattr(user, 'faculty_profile'):
+                                        faculty = user.faculty_profile
+                                elif matches.count() > 1:
+                                    # Multiple matches - prefer department match if available
+                                    if department:
+                                        user = matches.filter(faculty_profile__department=department).first()
+                                        if user and hasattr(user, 'faculty_profile'):
+                                            faculty = user.faculty_profile
+                                    # If still no match, take first one
+                                    if not faculty:
+                                        user = matches.first()
+                                        if user and hasattr(user, 'faculty_profile'):
+                                            faculty = user.faculty_profile
+                        except Exception:
+                            pass
+                    except User.MultipleObjectsReturned:
+                        # Multiple matches - try to filter by department
+                        if department:
+                            user = User.objects.filter(
+                                email__icontains=faculty_name.split('@')[0],
+                                faculty_profile__department=department
+                            ).first()
+                            if user and hasattr(user, 'faculty_profile'):
+                                faculty = user.faculty_profile
+                        if not faculty:
+                            user = User.objects.filter(email__icontains=faculty_name.split('@')[0]).first()
+                            if user and hasattr(user, 'faculty_profile'):
+                                faculty = user.faculty_profile
+                
+                # Strategy 3: Try exact name match
                 if not faculty and faculty_name:
-                    # Try to find by name
                     try:
                         user = User.objects.get(full_name__iexact=faculty_name)
                         if hasattr(user, 'faculty_profile'):
                             faculty = user.faculty_profile
                         else:
-                            skipped += 1
-                            errors.append({'row': row_num, 'error': f'User "{faculty_name}" is not a faculty member'})
-                            continue
+                            faculty_error = f'User "{faculty_name}" is not a faculty member'
                     except User.DoesNotExist:
-                        skipped += 1
-                        errors.append({'row': row_num, 'error': f'Faculty member "{faculty_name}" not found'})
-                        continue
+                        pass
                     except User.MultipleObjectsReturned:
                         # Try to match by department as well
-                        user = User.objects.filter(
-                            full_name__iexact=faculty_name,
-                            faculty_profile__department=department
-                        ).first()
-                        if user and hasattr(user, 'faculty_profile'):
-                            faculty = user.faculty_profile
-                        else:
-                            skipped += 1
-                            errors.append({'row': row_num, 'error': f'Multiple faculty members named "{faculty_name}" found. Please use email.'})
-                            continue
+                        if department:
+                            user = User.objects.filter(
+                                full_name__iexact=faculty_name,
+                                faculty_profile__department=department
+                            ).first()
+                            if user and hasattr(user, 'faculty_profile'):
+                                faculty = user.faculty_profile
+                        if not faculty:
+                            faculty_error = f'Multiple faculty members named "{faculty_name}" found. Please use email.'
                 
+                # Strategy 4: Try partial name match (contains) - only if no @ in name
+                if not faculty and faculty_name and '@' not in faculty_name:
+                    # Extract potential name parts (remove numbers and special chars)
+                    name_parts = [part for part in faculty_name.replace('@', ' ').replace('_', ' ').replace('.', ' ').split() if part.isalpha()]
+                    if name_parts:
+                        # Try to find by matching name parts
+                        query = User.objects.filter(faculty_profile__isnull=False)
+                        for part in name_parts:
+                            if len(part) > 2:  # Only use meaningful parts
+                                query = query.filter(full_name__icontains=part)
+                        
+                        if department:
+                            query = query.filter(faculty_profile__department=department)
+                        
+                        matches = query.distinct()
+                        if matches.count() == 1:
+                            user = matches.first()
+                            if hasattr(user, 'faculty_profile'):
+                                faculty = user.faculty_profile
+                        elif matches.count() > 1:
+                            # Multiple matches - try to find best match
+                            # Prefer exact match or closest match
+                            for user in matches:
+                                if hasattr(user, 'faculty_profile'):
+                                    # Check if name starts with the input
+                                    if user.full_name.lower().startswith(faculty_name.lower().split('@')[0]):
+                                        faculty = user.faculty_profile
+                                        break
+                            if not faculty:
+                                # Just take the first one if department matches
+                                user = matches.first()
+                                if user and hasattr(user, 'faculty_profile'):
+                                    faculty = user.faculty_profile
+                
+                # If still not found, provide helpful error message
                 if not faculty:
                     skipped += 1
-                    errors.append({'row': row_num, 'error': 'Could not find faculty member'})
+                    if faculty_error:
+                        errors.append({'row': row_num, 'error': faculty_error})
+                    else:
+                        # Provide suggestions
+                        suggestions = []
+                        if faculty_name:
+                            # Try to find similar names
+                            similar_users = User.objects.filter(
+                                faculty_profile__isnull=False,
+                                full_name__icontains=faculty_name.split('@')[0][:5] if '@' in faculty_name else faculty_name[:5]
+                            )[:3]
+                            if similar_users.exists():
+                                suggestions = [u.full_name for u in similar_users]
+                        
+                        error_msg = f'Faculty member "{faculty_name}" not found'
+                        if suggestions:
+                            error_msg += f'. Similar names found: {", ".join(suggestions)}'
+                        elif department:
+                            # List faculty in the department
+                            dept_faculty = User.objects.filter(
+                                faculty_profile__department=department,
+                                faculty_profile__isnull=False
+                            )[:5]
+                            if dept_faculty.exists():
+                                error_msg += f'. Available faculty in "{dept_name}": {", ".join([f"{u.full_name} ({u.email})" for u in dept_faculty])}'
+                        
+                        errors.append({'row': row_num, 'error': error_msg})
                     continue
                 
                 # Check if allocation already exists (check with term if available, otherwise check all active allocations)

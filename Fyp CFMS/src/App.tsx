@@ -1,116 +1,131 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Suspense, lazy } from 'react';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RoleBasedRedirect } from './components/common/RoleBasedRedirect';
-import { Login } from './pages/Login';
-import { AdminDashboard } from './pages/AdminDashboard';
-import { AdminProfile } from './pages/AdminProfile';
-import { AdminApprovedFolders } from './pages/AdminApprovedFolders';
-import { CreateTerm } from './pages/CreateTerm';
-import { ViewPreviousTerm } from './pages/ViewPreviousTerm';
-import { ViewCreatedTerms } from './pages/ViewCreatedTerms';
-import { EditTerm } from './pages/EditTerm';
-import { ViewTermDetails } from './pages/ViewTermDetails';
-import { FacultyManagement } from './pages/FacultyManagement';
-import { ManageFaculty } from './pages/ManageFaculty';
-import { EditFaculty } from './pages/EditFaculty';
-import { CourseAllocation } from './pages/CourseAllocation';
-import { AdminPendingRoleRequests } from './pages/AdminPendingRoleRequests';
-import { ViewCourses } from './pages/ViewCourses';
-import { EditCourse } from './pages/EditCourse';
-import { ViewAllocations } from './pages/ViewAllocations';
-import { Program } from './pages/Program';
-import { ViewPrograms } from './pages/ViewPrograms';
-import { EditProgram } from './pages/EditProgram';
-import { Department } from './pages/Department';
-import { ViewDepartments } from './pages/ViewDepartments';
-import { ViewDepartmentDescription } from './pages/ViewDepartmentDescription';
-import { FacultyProfile } from './pages/FacultyProfile';
-import { FacultyDashboard } from './pages/FacultyDashboard';
-import { CoordinatorProfile } from './pages/CoordinatorProfile';
-import { CoordinatorDashboard } from './pages/CoordinatorDashboard';
-import CoordinatorReview from './pages/CoordinatorReview';
-import { AuditTeamProfile } from './pages/AuditTeamProfile';
-import { AuditTeamDashboard } from './pages/AuditTeamDashboard';
-import { AuditTeamAssignedFolders } from './pages/AuditTeamAssignedFolders';
-import AuditMemberReports from './pages/AuditMemberReports';
-import { ConvenerDashboard } from './pages/ConvenerDashboard';
-import ConvenerAuditAssignment from './pages/ConvenerAuditAssignment';
-import ConvenerReviewAudits from './pages/ConvenerReviewAudits';
-import ConvenerProfile from './pages/ConvenerProfile';
-import ConvenerAuditTeam from './pages/ConvenerAuditTeam';
-import ConvenerManageAuditMembers from './pages/ConvenerManageAuditMembers';
-import { AuditReviewForm } from './pages/AuditReviewForm';
-import { HODDashboard } from './pages/HODDashboard';
-import HODProfile from './pages/HODProfile';
-import { HODCompletedFolders } from './pages/HODCompletedFolders';
-import { HODPendingFolders } from './pages/HODPendingFolders';
-import { HODSubmittedFolders } from './pages/HODSubmittedFolders';
-import { HODReviewFolders } from './pages/HODReviewFolders';
-import { HODReviewedFolders } from './pages/HODReviewedFolders';
-import { HODNotifications } from './pages/HODNotifications';
-import HODApprovals from './pages/HODApprovals';
-import HODRoleRequests from './pages/HODRoleRequests';
-import { HODFolderDecision } from './pages/HODFolderDecision';
-import { Unauthorized } from './pages/Unauthorized';
-import { CoordinatorNotifications } from './pages/CoordinatorNotifications';
-import { ConvenerNotifications } from './pages/ConvenerNotifications';
-import { AuditMemberNotifications } from './pages/AuditMemberNotifications';
-import { AdminNotifications } from './pages/AdminNotifications';
-import { FacultyCourses } from './pages/FacultyCourses';
-import { FacultyCompletedFolder } from './pages/FacultyCompletedFolder';
-import { FacultyPendingFolder } from './pages/FacultyPendingFolder';
-import { FacultySubmittedFolder } from './pages/FacultySubmittedFolder';
-import { FacultyNotifications } from './pages/FacultyNotifications';
-import CreateCourseFolder from './pages/CreateCourseFolder';
-import MyFolders from './pages/MyFolders';
-import FolderCreationWizard from './pages/FolderCreationWizard';
-import FolderDetailsView from './pages/FolderDetailsView';
-import FolderCoordinatorFeedback from './pages/FolderCoordinatorFeedback';
-import AuditReportViewer from './pages/AuditReportViewer';
-import FolderSectionPage from './pages/FolderSectionPage';
-import FolderTitlePage from './pages/FolderTitlePage';
-import FolderCourseOutline from './pages/FolderCourseOutline';
-import FolderCourseLog from './pages/FolderCourseLog';
-import FolderAttendance from './pages/FolderAttendance';
-import FolderLectureNotes from './pages/FolderLectureNotes';
-import FolderAssignments from './pages/FolderAssignments';
-import FolderAssignmentQuestionPaper from './pages/FolderAssignmentQuestionPaper';
-import FolderAssignmentModelSolution from './pages/FolderAssignmentModelSolution';
-import FolderAssignmentRecordBest from './pages/FolderAssignmentRecordBest';
-import FolderAssignmentRecordAverage from './pages/FolderAssignmentRecordAverage';
-import FolderAssignmentRecordWorst from './pages/FolderAssignmentRecordWorst';
-import FolderAssignmentRecordsOverview from './pages/FolderAssignmentRecordsOverview';
-import FolderQuizzes from './pages/FolderQuizzes';
-import FolderQuizQuestionPaper from './pages/FolderQuizQuestionPaper';
-import FolderQuizModelSolution from './pages/FolderQuizModelSolution';
-import FolderQuizRecordBest from './pages/FolderQuizRecordBest';
-import FolderQuizRecordAverage from './pages/FolderQuizRecordAverage';
-import FolderQuizRecordWorst from './pages/FolderQuizRecordWorst';
-import FolderQuizRecordsOverview from './pages/FolderQuizRecordsOverview';
-import FolderMidtermQuestionPaper from './pages/FolderMidtermQuestionPaper';
-import FolderMidtermModelSolution from './pages/FolderMidtermModelSolution';
-import FolderMidtermRecordBest from './pages/FolderMidtermRecordBest';
-import FolderMidtermRecordAverage from './pages/FolderMidtermRecordAverage';
-import FolderMidtermRecordWorst from './pages/FolderMidtermRecordWorst';
-import FolderFinalQuestionPaper from './pages/FolderFinalQuestionPaper';
-import FolderFinalModelSolution from './pages/FolderFinalModelSolution';
-import FolderFinalRecordBest from './pages/FolderFinalRecordBest';
-import FolderFinalRecordAverage from './pages/FolderFinalRecordAverage';
-import FolderFinalRecordWorst from './pages/FolderFinalRecordWorst';
-import FolderProjectReport from './pages/FolderProjectReport';
-import FolderCourseResult from './pages/FolderCourseResult';
-import FolderCloAssessment from './pages/FolderCloAssessment';
-import CoordinatorFolderDecision from './pages/CoordinatorFolderDecision';
-import FolderSubmit from './pages/FolderSubmit';
-import FolderReport from './pages/FolderReport';
-import FolderReviewReport from './pages/FolderReviewReport';
+
+// Lazy load components for better performance
+const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
+// Lazy load all page components for code splitting
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const AdminProfile = lazy(() => import('./pages/AdminProfile').then(m => ({ default: m.AdminProfile })));
+const AdminApprovedFolders = lazy(() => import('./pages/AdminApprovedFolders').then(m => ({ default: m.AdminApprovedFolders })));
+const CreateTerm = lazy(() => import('./pages/CreateTerm').then(m => ({ default: m.CreateTerm })));
+const ViewPreviousTerm = lazy(() => import('./pages/ViewPreviousTerm').then(m => ({ default: m.ViewPreviousTerm })));
+const ViewCreatedTerms = lazy(() => import('./pages/ViewCreatedTerms').then(m => ({ default: m.ViewCreatedTerms })));
+const EditTerm = lazy(() => import('./pages/EditTerm').then(m => ({ default: m.EditTerm })));
+const ViewTermDetails = lazy(() => import('./pages/ViewTermDetails').then(m => ({ default: m.ViewTermDetails })));
+const FacultyManagement = lazy(() => import('./pages/FacultyManagement').then(m => ({ default: m.FacultyManagement })));
+const ManageFaculty = lazy(() => import('./pages/ManageFaculty').then(m => ({ default: m.ManageFaculty })));
+const EditFaculty = lazy(() => import('./pages/EditFaculty').then(m => ({ default: m.EditFaculty })));
+const CourseAllocation = lazy(() => import('./pages/CourseAllocation').then(m => ({ default: m.CourseAllocation })));
+const AdminPendingRoleRequests = lazy(() => import('./pages/AdminPendingRoleRequests').then(m => ({ default: m.AdminPendingRoleRequests })));
+const ViewCourses = lazy(() => import('./pages/ViewCourses').then(m => ({ default: m.ViewCourses })));
+const EditCourse = lazy(() => import('./pages/EditCourse').then(m => ({ default: m.EditCourse })));
+const ViewAllocations = lazy(() => import('./pages/ViewAllocations').then(m => ({ default: m.ViewAllocations })));
+const Program = lazy(() => import('./pages/Program').then(m => ({ default: m.Program })));
+const ViewPrograms = lazy(() => import('./pages/ViewPrograms').then(m => ({ default: m.ViewPrograms })));
+const EditProgram = lazy(() => import('./pages/EditProgram').then(m => ({ default: m.EditProgram })));
+const Department = lazy(() => import('./pages/Department').then(m => ({ default: m.Department })));
+const ViewDepartments = lazy(() => import('./pages/ViewDepartments').then(m => ({ default: m.ViewDepartments })));
+const ViewDepartmentDescription = lazy(() => import('./pages/ViewDepartmentDescription').then(m => ({ default: m.ViewDepartmentDescription })));
+const FacultyProfile = lazy(() => import('./pages/FacultyProfile').then(m => ({ default: m.FacultyProfile })));
+const FacultyDashboard = lazy(() => import('./pages/FacultyDashboard').then(m => ({ default: m.FacultyDashboard })));
+const CoordinatorProfile = lazy(() => import('./pages/CoordinatorProfile').then(m => ({ default: m.CoordinatorProfile })));
+const CoordinatorDashboard = lazy(() => import('./pages/CoordinatorDashboard').then(m => ({ default: m.CoordinatorDashboard })));
+const CoordinatorReview = lazy(() => import('./pages/CoordinatorReview'));
+const AuditTeamProfile = lazy(() => import('./pages/AuditTeamProfile').then(m => ({ default: m.AuditTeamProfile })));
+const AuditTeamDashboard = lazy(() => import('./pages/AuditTeamDashboard').then(m => ({ default: m.AuditTeamDashboard })));
+const AuditTeamAssignedFolders = lazy(() => import('./pages/AuditTeamAssignedFolders').then(m => ({ default: m.AuditTeamAssignedFolders })));
+const AuditMemberReports = lazy(() => import('./pages/AuditMemberReports'));
+const ConvenerDashboard = lazy(() => import('./pages/ConvenerDashboard').then(m => ({ default: m.ConvenerDashboard })));
+const ConvenerAuditAssignment = lazy(() => import('./pages/ConvenerAuditAssignment'));
+const ConvenerReviewAudits = lazy(() => import('./pages/ConvenerReviewAudits'));
+const ConvenerProfile = lazy(() => import('./pages/ConvenerProfile'));
+const ConvenerAuditTeam = lazy(() => import('./pages/ConvenerAuditTeam'));
+const ConvenerManageAuditMembers = lazy(() => import('./pages/ConvenerManageAuditMembers'));
+const AuditReviewForm = lazy(() => import('./pages/AuditReviewForm').then(m => ({ default: m.AuditReviewForm })));
+const HODDashboard = lazy(() => import('./pages/HODDashboard').then(m => ({ default: m.HODDashboard })));
+const HODProfile = lazy(() => import('./pages/HODProfile'));
+const HODCompletedFolders = lazy(() => import('./pages/HODCompletedFolders').then(m => ({ default: m.HODCompletedFolders })));
+const HODPendingFolders = lazy(() => import('./pages/HODPendingFolders').then(m => ({ default: m.HODPendingFolders })));
+const HODSubmittedFolders = lazy(() => import('./pages/HODSubmittedFolders').then(m => ({ default: m.HODSubmittedFolders })));
+const HODReviewFolders = lazy(() => import('./pages/HODReviewFolders').then(m => ({ default: m.HODReviewFolders })));
+const HODReviewedFolders = lazy(() => import('./pages/HODReviewedFolders').then(m => ({ default: m.HODReviewedFolders })));
+const HODNotifications = lazy(() => import('./pages/HODNotifications').then(m => ({ default: m.HODNotifications })));
+const HODApprovals = lazy(() => import('./pages/HODApprovals'));
+const HODRoleRequests = lazy(() => import('./pages/HODRoleRequests'));
+const HODFolderDecision = lazy(() => import('./pages/HODFolderDecision').then(m => ({ default: m.HODFolderDecision })));
+const Unauthorized = lazy(() => import('./pages/Unauthorized').then(m => ({ default: m.Unauthorized })));
+const CoordinatorNotifications = lazy(() => import('./pages/CoordinatorNotifications').then(m => ({ default: m.CoordinatorNotifications })));
+const ConvenerNotifications = lazy(() => import('./pages/ConvenerNotifications').then(m => ({ default: m.ConvenerNotifications })));
+const AuditMemberNotifications = lazy(() => import('./pages/AuditMemberNotifications').then(m => ({ default: m.AuditMemberNotifications })));
+const AdminNotifications = lazy(() => import('./pages/AdminNotifications').then(m => ({ default: m.AdminNotifications })));
+const FacultyCourses = lazy(() => import('./pages/FacultyCourses').then(m => ({ default: m.FacultyCourses })));
+const FacultyCompletedFolder = lazy(() => import('./pages/FacultyCompletedFolder').then(m => ({ default: m.FacultyCompletedFolder })));
+const FacultyPendingFolder = lazy(() => import('./pages/FacultyPendingFolder').then(m => ({ default: m.FacultyPendingFolder })));
+const FacultySubmittedFolder = lazy(() => import('./pages/FacultySubmittedFolder').then(m => ({ default: m.FacultySubmittedFolder })));
+const FacultyNotifications = lazy(() => import('./pages/FacultyNotifications').then(m => ({ default: m.FacultyNotifications })));
+const CreateCourseFolder = lazy(() => import('./pages/CreateCourseFolder'));
+const MyFolders = lazy(() => import('./pages/MyFolders'));
+const FolderCreationWizard = lazy(() => import('./pages/FolderCreationWizard'));
+const FolderDetailsView = lazy(() => import('./pages/FolderDetailsView'));
+const FolderCoordinatorFeedback = lazy(() => import('./pages/FolderCoordinatorFeedback'));
+const AuditReportViewer = lazy(() => import('./pages/AuditReportViewer'));
+const FolderSectionPage = lazy(() => import('./pages/FolderSectionPage'));
+const FolderTitlePage = lazy(() => import('./pages/FolderTitlePage'));
+const FolderCourseOutline = lazy(() => import('./pages/FolderCourseOutline'));
+const FolderCourseLog = lazy(() => import('./pages/FolderCourseLog'));
+const FolderAttendance = lazy(() => import('./pages/FolderAttendance'));
+const FolderLectureNotes = lazy(() => import('./pages/FolderLectureNotes'));
+const FolderAssignments = lazy(() => import('./pages/FolderAssignments'));
+const FolderAssignmentQuestionPaper = lazy(() => import('./pages/FolderAssignmentQuestionPaper'));
+const FolderAssignmentModelSolution = lazy(() => import('./pages/FolderAssignmentModelSolution'));
+const FolderAssignmentRecordBest = lazy(() => import('./pages/FolderAssignmentRecordBest'));
+const FolderAssignmentRecordAverage = lazy(() => import('./pages/FolderAssignmentRecordAverage'));
+const FolderAssignmentRecordWorst = lazy(() => import('./pages/FolderAssignmentRecordWorst'));
+const FolderAssignmentRecordsOverview = lazy(() => import('./pages/FolderAssignmentRecordsOverview'));
+const FolderQuizzes = lazy(() => import('./pages/FolderQuizzes'));
+const FolderQuizQuestionPaper = lazy(() => import('./pages/FolderQuizQuestionPaper'));
+const FolderQuizModelSolution = lazy(() => import('./pages/FolderQuizModelSolution'));
+const FolderQuizRecordBest = lazy(() => import('./pages/FolderQuizRecordBest'));
+const FolderQuizRecordAverage = lazy(() => import('./pages/FolderQuizRecordAverage'));
+const FolderQuizRecordWorst = lazy(() => import('./pages/FolderQuizRecordWorst'));
+const FolderQuizRecordsOverview = lazy(() => import('./pages/FolderQuizRecordsOverview'));
+const FolderMidtermQuestionPaper = lazy(() => import('./pages/FolderMidtermQuestionPaper'));
+const FolderMidtermModelSolution = lazy(() => import('./pages/FolderMidtermModelSolution'));
+const FolderMidtermRecordBest = lazy(() => import('./pages/FolderMidtermRecordBest'));
+const FolderMidtermRecordAverage = lazy(() => import('./pages/FolderMidtermRecordAverage'));
+const FolderMidtermRecordWorst = lazy(() => import('./pages/FolderMidtermRecordWorst'));
+const FolderFinalQuestionPaper = lazy(() => import('./pages/FolderFinalQuestionPaper'));
+const FolderFinalModelSolution = lazy(() => import('./pages/FolderFinalModelSolution'));
+const FolderFinalRecordBest = lazy(() => import('./pages/FolderFinalRecordBest'));
+const FolderFinalRecordAverage = lazy(() => import('./pages/FolderFinalRecordAverage'));
+const FolderFinalRecordWorst = lazy(() => import('./pages/FolderFinalRecordWorst'));
+const FolderProjectReport = lazy(() => import('./pages/FolderProjectReport'));
+const FolderCourseResult = lazy(() => import('./pages/FolderCourseResult'));
+const FolderCloAssessment = lazy(() => import('./pages/FolderCloAssessment'));
+const CoordinatorFolderDecision = lazy(() => import('./pages/CoordinatorFolderDecision'));
+const FolderSubmit = lazy(() => import('./pages/FolderSubmit'));
+const FolderReport = lazy(() => import('./pages/FolderReport'));
+const FolderReviewReport = lazy(() => import('./pages/FolderReviewReport'));
+
+// Loading component
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center min-h-screen">
+    <div className="text-center">
+      <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+      <p className="text-gray-600">Loading...</p>
+    </div>
+  </div>
+);
 
 function App() {
   return (
     <AuthProvider>
       <Router>
-        <Routes>
+        <Suspense fallback={<LoadingFallback />}>
+          <Routes>
           {/* Root route - redirects based on user role */}
           <Route path="/" element={<RoleBasedRedirect />} />
 
@@ -1635,7 +1650,8 @@ function App() {
           } />
 
           <Route path="/logout" element={<Navigate to="/login" replace />} />
-        </Routes>
+          </Routes>
+        </Suspense>
       </Router>
     </AuthProvider>
   );

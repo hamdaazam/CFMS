@@ -5,10 +5,14 @@ Django settings for cfms_backend project.
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
-import pymysql
 
-# Initialize PyMySQL as MySQLdb replacement
+# Initialize PyMySQL as MySQLdb replacement BEFORE Django setup
+# This must be done before any Django database operations
+import pymysql
+# Force PyMySQL to be used instead of mysqlclient
 pymysql.install_as_MySQLdb()
+# Override version to satisfy Django's mysqlclient version check
+pymysql.version_info = (2, 2, 1, "final", 0)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -81,20 +85,33 @@ TEMPLATES = [
 WSGI_APPLICATION = 'cfms_backend.wsgi.application'
 
 # Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': config('DB_NAME', default='cfms_db'),
-        'USER': config('DB_USER', default='root'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='3306'),
-        'OPTIONS': {
-            'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+# Use MySQL if DB_PASSWORD is set, otherwise use SQLite for easy local development
+DB_PASSWORD = config('DB_PASSWORD', default=None)
+
+if DB_PASSWORD:
+    # MySQL Configuration (for production or when MySQL is configured)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': config('DB_NAME', default='cfms_db'),
+            'USER': config('DB_USER', default='root'),
+            'PASSWORD': DB_PASSWORD,
+            'HOST': config('DB_HOST', default='localhost'),
+            'PORT': config('DB_PORT', default='3306'),
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            }
         }
     }
-}
+else:
+    # SQLite Configuration (for easy local development without MySQL setup)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
@@ -127,7 +144,8 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Media files
 MEDIA_URL = 'media/'
-MEDIA_ROOT = config('MEDIA_ROOT', default='D:\\Documents\\course_folders')
+# Use a path relative to BASE_DIR that will work on any system
+MEDIA_ROOT = config('MEDIA_ROOT', default=str(BASE_DIR / 'media' / 'course_folders'))
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -154,11 +172,9 @@ SIMPLE_JWT = {
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }
 
-# CORS Settings
-CORS_ALLOWED_ORIGINS = config(
-    'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174'
-).split(',')
+# CORS Settings - Allow all origins in development
+CORS_ALLOW_ALL_ORIGINS = True  # Simplified for local development
+CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_CREDENTIALS = True
 

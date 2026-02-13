@@ -53,6 +53,10 @@ export const ManageFaculty: React.FC = () => {
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Selection mode states
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedFacultyIds, setSelectedFacultyIds] = useState<Set<number>>(new Set());
+
   useEffect(() => {
     fetchFaculty();
     fetchDepartments();
@@ -167,20 +171,173 @@ export const ManageFaculty: React.FC = () => {
 
   const handleDelete = async (id: number) => {
     const facultyMember = faculty.find(f => f.id === id);
-    if (!facultyMember) return;
+    if (!facultyMember) {
+      setError('Faculty member not found. Please refresh the page.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
 
-    if (window.confirm(`Are you sure you want to delete "${facultyMember.full_name}"?`)) {
+    if (window.confirm(`Are you sure you want to delete "${facultyMember.full_name}"?\n\nThis will permanently delete the faculty member and their user account.`)) {
       try {
+        setLoading(true);
+        setError(null);
         await facultyAPI.delete(id);
-        setSuccessMessage('Faculty deleted successfully!');
+        setSuccessMessage(`Faculty "${facultyMember.full_name}" deleted successfully!`);
         setTimeout(() => setSuccessMessage(null), 3000);
-        fetchFaculty();
+        // Refresh the faculty list
+        await fetchFaculty();
       } catch (err: any) {
         console.error('Error deleting faculty:', err);
-        const errorMsg = err.response?.data?.detail || 'Failed to delete faculty. Please try again.';
+        const errorMsg = err.response?.data?.detail || 
+                         err.response?.data?.message || 
+                         err.response?.data?.error ||
+                         err.message || 
+                         'Failed to delete faculty. Please try again.';
         setError(errorMsg);
-        setTimeout(() => setError(null), 3000);
+        setTimeout(() => setError(null), 5000);
+      } finally {
+        setLoading(false);
       }
+    }
+  };
+
+  const handleToggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    setSelectedFacultyIds(new Set()); // Clear selections when toggling mode
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedFacultyIds(new Set(visibleFaculty.map(f => f.id)));
+    } else {
+      setSelectedFacultyIds(new Set());
+    }
+  };
+
+  const handleSelectFaculty = (id: number, checked: boolean) => {
+    const newSelected = new Set(selectedFacultyIds);
+    if (checked) {
+      newSelected.add(id);
+    } else {
+      newSelected.delete(id);
+    }
+    setSelectedFacultyIds(newSelected);
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedFacultyIds.size === 0) {
+      setError('Please select at least one faculty member to delete.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    const selectedFaculty = visibleFaculty.filter(f => selectedFacultyIds.has(f.id));
+    const count = selectedFaculty.length;
+    const names = selectedFaculty.map(f => f.full_name).join(', ');
+
+    if (!window.confirm(`Are you sure you want to delete ${count} selected faculty member(s)?\n\nSelected: ${names}\n\nThis will permanently delete these faculty members and their user accounts.\n\nThis action cannot be undone!`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      let successCount = 0;
+      let failCount = 0;
+      const errors: string[] = [];
+
+      // Delete selected faculty members one by one
+      for (const facultyMember of selectedFaculty) {
+        try {
+          await facultyAPI.delete(facultyMember.id);
+          successCount++;
+        } catch (err: any) {
+          failCount++;
+          const errorMsg = err.response?.data?.detail || err.response?.data?.message || 'Unknown error';
+          errors.push(`${facultyMember.full_name}: ${errorMsg}`);
+          console.error(`Failed to delete ${facultyMember.full_name}:`, err);
+        }
+      }
+
+      // Show results
+      if (successCount > 0) {
+        setSuccessMessage(`Successfully deleted ${successCount} faculty member(s).${failCount > 0 ? ` Failed: ${failCount}` : ''}`);
+        setTimeout(() => setSuccessMessage(null), 5000);
+      }
+      
+      if (failCount > 0) {
+        setError(`Failed to delete ${failCount} faculty member(s). Check console for details.`);
+        setTimeout(() => setError(null), 5000);
+        console.error('Delete selected errors:', errors);
+      }
+
+      // Clear selections and exit selection mode
+      setSelectedFacultyIds(new Set());
+      setIsSelectionMode(false);
+
+      // Refresh the faculty list
+      await fetchFaculty();
+    } catch (err: any) {
+      console.error('Error deleting selected faculty:', err);
+      setError('Failed to delete faculty members. Please try again.');
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (visibleFaculty.length === 0) {
+      setError('No faculty members to delete.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    const count = visibleFaculty.length;
+    if (!window.confirm(`Are you sure you want to delete ALL ${count} faculty member(s)?\n\nThis will permanently delete all faculty members and their user accounts.\n\nThis action cannot be undone!`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      let successCount = 0;
+      let failCount = 0;
+      const errors: string[] = [];
+
+      // Delete all faculty members one by one
+      for (const facultyMember of visibleFaculty) {
+        try {
+          await facultyAPI.delete(facultyMember.id);
+          successCount++;
+        } catch (err: any) {
+          failCount++;
+          const errorMsg = err.response?.data?.detail || err.response?.data?.message || 'Unknown error';
+          errors.push(`${facultyMember.full_name}: ${errorMsg}`);
+          console.error(`Failed to delete ${facultyMember.full_name}:`, err);
+        }
+      }
+
+      // Show results
+      if (successCount > 0) {
+        setSuccessMessage(`Successfully deleted ${successCount} faculty member(s).${failCount > 0 ? ` Failed: ${failCount}` : ''}`);
+        setTimeout(() => setSuccessMessage(null), 5000);
+      }
+      
+      if (failCount > 0) {
+        setError(`Failed to delete ${failCount} faculty member(s). Check console for details.`);
+        setTimeout(() => setError(null), 5000);
+        console.error('Bulk delete errors:', errors);
+      }
+
+      // Refresh the faculty list
+      await fetchFaculty();
+    } catch (err: any) {
+      console.error('Error in bulk delete:', err);
+      setError('Failed to delete faculty members. Please try again.');
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -483,18 +640,76 @@ export const ManageFaculty: React.FC = () => {
           )}
 
           {/* Empty State */}
-          {!loading && filteredFaculty.length === 0 && !collapsed && (
+          {!loading && visibleFaculty.length === 0 && !collapsed && (
             <div className="p-8 text-center text-gray-500">
-              {searchQuery ? 'No faculty found matching your search.' : 'No faculty available. Add faculty to get started.'}
+              {searchQuery ? 'No faculty found matching your search.' : faculty.length === 0 ? 'No faculty available. Add faculty to get started.' : 'No Faculty matches the given query.'}
+            </div>
+          )}
+
+          {/* Selection Mode Controls - Only show when there are faculty members */}
+          {!loading && visibleFaculty.length > 0 && user?.role === 'ADMIN' && !collapsed && (
+            <div className="p-4 border-b border-gray-200 bg-gray-50">
+              {!isSelectionMode ? (
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={handleToggleSelectionMode}
+                    disabled={loading}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    Select to Delete
+                  </button>
+                  <p className="text-sm text-gray-600">Click to select individual faculty members for deletion</p>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={handleToggleSelectionMode}
+                      disabled={loading}
+                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium"
+                    >
+                      Cancel Selection
+                    </button>
+                    <button
+                      onClick={handleDeleteSelected}
+                      disabled={loading || selectedFacultyIds.size === 0}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Delete Selected ({selectedFacultyIds.size})
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {selectedFacultyIds.size > 0 
+                      ? `${selectedFacultyIds.size} faculty member(s) selected`
+                      : 'Select faculty members to delete'}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
           {/* Table */}
-          {!loading && filteredFaculty.length > 0 && !collapsed && (
+          {!loading && visibleFaculty.length > 0 && !collapsed && (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
+                    {isSelectionMode && user?.role === 'ADMIN' && (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">
+                        <input
+                          type="checkbox"
+                          checked={selectedFacultyIds.size === visibleFaculty.length && visibleFaculty.length > 0}
+                          onChange={(e) => handleSelectAll(e.target.checked)}
+                          className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                        />
+                      </th>
+                    )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Sr. No</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Name</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Email</th>
@@ -504,14 +719,27 @@ export const ManageFaculty: React.FC = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Designation</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Department</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Program</th>
-                    {user?.role === 'ADMIN' && (
+                    {user?.role === 'ADMIN' && !isSelectionMode && (
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Action</th>
                     )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {visibleFaculty.map((facultyMember, index) => (
-                    <tr key={facultyMember.id} className="hover:bg-gray-50">
+                    <tr 
+                      key={facultyMember.id} 
+                      className={`hover:bg-gray-50 ${isSelectionMode && selectedFacultyIds.has(facultyMember.id) ? 'bg-blue-50' : ''}`}
+                    >
+                      {isSelectionMode && user?.role === 'ADMIN' && (
+                        <td className="px-6 py-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedFacultyIds.has(facultyMember.id)}
+                            onChange={(e) => handleSelectFaculty(facultyMember.id, e.target.checked)}
+                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                          />
+                        </td>
+                      )}
                       <td className="px-6 py-4 text-sm text-gray-900">{index + 1}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{facultyMember.full_name}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{facultyMember.email}</td>
@@ -530,7 +758,7 @@ export const ManageFaculty: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{getDepartmentName(facultyMember.department)}</td>
                       <td className="px-6 py-4 text-sm text-gray-900">{getProgramName(facultyMember.program)}</td>
-                      {user?.role === 'ADMIN' && (
+                      {user?.role === 'ADMIN' && !isSelectionMode && (
                         <td className="px-6 py-4 text-sm space-x-2">
                           <button
                             onClick={() => handleEdit(facultyMember.id)}

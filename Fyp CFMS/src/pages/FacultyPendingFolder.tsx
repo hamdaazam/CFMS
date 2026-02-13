@@ -96,16 +96,16 @@ export const FacultyPendingFolder: React.FC = () => {
           }
           
           // Include APPROVED_BY_HOD folders that are ready for second submission
-          // (deadline passed AND don't have final term content yet)
+          // (first approval after mid-term - show in pending if no final term content yet)
           if (status === 'APPROVED_BY_HOD') {
             const firstActivityCompleted = folder.first_activity_completed === true || folder.first_activity_completed === 'true';
-            const canEditForFinalSubmission = folder.can_edit_for_final_submission === true || folder.can_edit_for_final_submission === 'true';
             
-            if (firstActivityCompleted && canEditForFinalSubmission) {
-              // Deadline has passed - only show in pending if final term content is not yet added
+            if (firstActivityCompleted) {
+              // First approval completed - show in pending if final term content is not yet added
+              // This allows instructor to continue working on folder for final term
               return !hasFinalTermContent(folder);
             }
-            // If deadline hasn't passed or first_activity_completed is false, don't show in pending
+            // If first_activity_completed is false, don't show in pending
             return false;
           }
           

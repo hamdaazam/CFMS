@@ -19,6 +19,7 @@ export const CourseAllocation: React.FC = () => {
   
   // State for allocation upload
   const [allocationUploadMessage, setAllocationUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [allocationUploadErrors, setAllocationUploadErrors] = useState<Array<{ row: number; error: string }>>([]);
   const [allocationUploadLoading, setAllocationUploadLoading] = useState(false);
   const [selectedAllocationFile, setSelectedAllocationFile] = useState<File | null>(null);
   const allocationFileInputRef = useRef<HTMLInputElement>(null);
@@ -105,14 +106,28 @@ export const CourseAllocation: React.FC = () => {
       const created = resp.data?.created ?? 0;
       const skipped = resp.data?.skipped ?? 0;
       const errors = resp.data?.errors ?? [];
+      
       let message = `Uploaded successfully. Created: ${created}, Skipped: ${skipped}`;
       if (errors.length > 0) {
         message += `. ${errors.length} error(s) occurred.`;
       }
+      
+      // Determine message type based on results
+      const messageType = created > 0 ? 'success' : 'error';
+      
       setAllocationUploadMessage({
-        type: 'success',
+        type: messageType,
         text: message,
       });
+      
+      // Store errors for detailed display
+      if (errors.length > 0) {
+        console.error('Upload errors:', errors);
+        setAllocationUploadErrors(errors);
+      } else {
+        setAllocationUploadErrors([]);
+      }
+      
       setSelectedAllocationFile(null);
       if (allocationFileInputRef.current) allocationFileInputRef.current.value = '';
     } catch (error: any) {
@@ -209,10 +224,24 @@ export const CourseAllocation: React.FC = () => {
                     <li><code className="bg-gray-100 px-2 py-1 rounded">program</code> - Program title</li>
                     <li><code className="bg-gray-100 px-2 py-1 rounded">coordinator</code> - Coordinator name or email (creates coordinator assignment)</li>
                   </ul>
-                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
-                    <p className="text-xs text-blue-800">
-                      <strong>Note:</strong> The coordinator column accepts either name or email. If duplicate names exist, use email for accurate matching.
-                    </p>
+                  <div className="mt-3 space-y-2">
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded">
+                      <p className="text-xs text-blue-800">
+                        <strong>Note:</strong> The coordinator column accepts either name or email. If duplicate names exist, use email for accurate matching.
+                      </p>
+                    </div>
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded">
+                      <p className="text-xs text-amber-800">
+                        <strong>Faculty Matching:</strong> The system will try to match faculty by:
+                        <ul className="list-disc list-inside ml-2 mt-1 space-y-0.5">
+                          <li>Exact email match (if faculty_email column is used)</li>
+                          <li>Partial email match (if faculty_name contains '@')</li>
+                          <li>Exact full name match</li>
+                          <li>Partial name match (extracts name parts)</li>
+                        </ul>
+                        If matching fails, check that faculty names/emails in your Excel match exactly with the database, or use full email addresses for best results.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -247,14 +276,33 @@ export const CourseAllocation: React.FC = () => {
               </p>
             )}
             {allocationUploadMessage && (
-              <div
-                className={`mt-3 p-3 rounded ${
-                  allocationUploadMessage.type === 'success'
-                    ? 'bg-green-50 border border-green-200 text-green-800'
-                    : 'bg-red-50 border border-red-200 text-red-800'
-                }`}
-              >
-                <p className="text-sm font-medium">{allocationUploadMessage.text}</p>
+              <div className="mt-3 space-y-2">
+                <div
+                  className={`p-3 rounded ${
+                    allocationUploadMessage.type === 'success'
+                      ? 'bg-green-50 border border-green-200 text-green-800'
+                      : 'bg-red-50 border border-red-200 text-red-800'
+                  }`}
+                >
+                  <p className="text-sm font-medium">{allocationUploadMessage.text}</p>
+                </div>
+                {allocationUploadErrors.length > 0 && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded p-3 max-h-60 overflow-y-auto">
+                    <p className="text-sm font-medium text-yellow-900 mb-2">Detailed Errors:</p>
+                    <ul className="text-xs text-yellow-800 space-y-1 list-disc list-inside">
+                      {allocationUploadErrors.slice(0, 20).map((err, idx) => (
+                        <li key={idx}>
+                          <strong>Row {err.row}:</strong> {err.error}
+                        </li>
+                      ))}
+                      {allocationUploadErrors.length > 20 && (
+                        <li className="text-yellow-700 italic">
+                          ... and {allocationUploadErrors.length - 20} more errors
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -59,26 +59,15 @@ export const FacultyCompletedFolder: React.FC = () => {
         const response = await courseFoldersAPI.getMyFolders();
         const data = Array.isArray(response.data) ? response.data : [];
         
-        // Completed folders: APPROVED_BY_HOD with final term content OR deadline hasn't passed yet
+        // Completed folders: APPROVED_BY_HOD with final term content (second submission completed)
         const filtered = data.filter((folder: any) => {
           const status = (folder.status || '').toUpperCase();
           
           // Only show APPROVED_BY_HOD folders
           if (status === 'APPROVED_BY_HOD') {
-            const firstActivityCompleted = folder.first_activity_completed === true || folder.first_activity_completed === 'true';
-            const canEditForFinalSubmission = folder.can_edit_for_final_submission === true || folder.can_edit_for_final_submission === 'true';
-            
-            if (firstActivityCompleted) {
-              // If deadline has passed, only show if final term content exists (second submission completed)
-              if (canEditForFinalSubmission) {
-                return hasFinalTermContent(folder);
-              } else {
-                // Deadline hasn't passed yet - show as completed (first submission completed, waiting for deadline)
-                return true;
-              }
-            }
-            // If first_activity_completed is false, don't show (it shouldn't be in completed)
-            return false;
+            // Only show in completed if final term content exists (second submission is done)
+            // If first approval just happened and no final term content yet, it should be in pending, not completed
+            return hasFinalTermContent(folder);
           }
           
           // Don't show other statuses in completed folder page

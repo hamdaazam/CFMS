@@ -365,10 +365,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
         try {
             // Use backend-provided flag if available (most reliable)
             if (folder.has_final_term_content !== undefined) {
-                return folder.has_final_term_content === true;
+                // Explicitly check for true (not just truthy)
+                return folder.has_final_term_content === true || folder.has_final_term_content === 'true';
             }
             
-            // Fallback: check files directly
+            // Fallback: check files directly - all three files must exist
             const has_required_files = !!(
                 folder.project_report_file && 
                 folder.course_result_file && 
@@ -378,9 +379,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
             // Note: outline_content is not included in list serializer to avoid performance issues
             // So we rely on the backend's has_final_term_content field
             
+            // Only return true if we're certain final term content exists
             return has_required_files;
         } catch (e) {
             console.error('Error checking final term content:', e);
+            // On error, assume no final term content (safer to show in pending)
             return false;
         }
     };
@@ -416,32 +419,49 @@ export const Sidebar: React.FC<SidebarProps> = ({ userRole }) => {
         for (const f of folders) {
             const status = (f.status || '').toUpperCase();
             
-            // Handle APPROVED_BY_HOD folders specially based on deadline and final term content
+            // Handle APPROVED_BY_HOD folders specially based on final term content
             if (status === 'APPROVED_BY_HOD') {
                 const firstActivityCompleted = f.first_activity_completed === true || f.first_activity_completed === 'true';
-                const canEditForFinalSubmission = f.can_edit_for_final_submission === true || f.can_edit_for_final_submission === 'true';
                 const hasFinal = hasFinalTermContent(f);
                 
+                // Debug logging (can be removed later)
+                console.log('Folder categorization:', {
+                    id: f.id,
+                    status: f.status,
+                    firstActivityCompleted,
+                    hasFinal,
+                    has_final_term_content: f.has_final_term_content,
+                    project_report_file: !!f.project_report_file,
+                    course_result_file: !!f.course_result_file,
+                    folder_review_report_file: !!f.folder_review_report_file
+                });
+                
                 if (firstActivityCompleted) {
-                    // If deadline has passed (can edit for final submission), check if final term content exists
-                    if (canEditForFinalSubmission) {
-                        if (hasFinal) {
-                            // Has final term → fully completed (second submission done)
-                            completed.push(f);
-                        } else {
-                            // Deadline passed but no final term yet → ready for second submission (should be in pending)
-                            pending.push(f);
-                        }
-                    } else {
-                        // Deadline hasn't passed yet → treat as completed (first submission completed, waiting for deadline)
+                    // First approval after mid-term: show in pending if no final term content exists yet
+                    // This allows instructor to continue working on folder for final term submission
+                    if (hasFinal) {
+                        // Has final term → fully completed (second submission done)
                         completed.push(f);
+                        // Also add to submitted since second submission is complete
+                        submitted.push(f);
+                    } else {
+                        // No final term content yet → show in pending (ready for final term work)
+                        // DO NOT add to submitted - it will be added when instructor submits again
+                        pending.push(f);
                     }
                 } else {
-                    // Shouldn't happen for new folders, but if first_activity_completed is false, treat as completed
-                    completed.push(f);
+                    // If first_activity_completed is false, it means this is not the first approval
+                    // This shouldn't happen for newly approved folders, but handle it gracefully
+                    // For now, if first_activity_completed is false, still check final term content
+                    if (hasFinal) {
+                        completed.push(f);
+                        submitted.push(f);
+                    } else {
+                        // Even if first_activity_completed is false, if no final term content, show in pending
+                        // DO NOT add to submitted
+                        pending.push(f);
+                    }
                 }
-                // Also add to submitted for consistency
-                submitted.push(f);
                 continue;
             }
             

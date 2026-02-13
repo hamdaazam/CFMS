@@ -109,30 +109,71 @@ class CourseFolderListSerializer(serializers.ModelSerializer):
     def get_has_final_term_content(self, obj):
         """Check if folder has final term content (indicating second submission is complete)"""
         try:
+            # For folders that were just approved for the first time (first_activity_completed = True),
+            # we should ONLY check for the actual files, not outline_content, because outline_content
+            # might have placeholder/empty data that shouldn't count as final term content.
+            
+            first_activity_completed = getattr(obj, 'first_activity_completed', False)
+            
             # Check if required files for second submission exist
+            # All three files must exist and be non-empty
+            project_file = getattr(obj, 'project_report_file', None)
+            course_result_file = getattr(obj, 'course_result_file', None)
+            folder_review_file = getattr(obj, 'folder_review_report_file', None)
+            
             has_required_files = bool(
-                getattr(obj, 'project_report_file', None) and 
-                getattr(obj, 'course_result_file', None) and 
-                getattr(obj, 'folder_review_report_file', None)
+                project_file and 
+                course_result_file and 
+                folder_review_file
             )
             
-            # Also check outline_content for final term data (only if it exists and is accessible)
+            # If first activity is completed, ONLY check files (ignore outline_content)
+            # This ensures folders just approved for the first time show in pending, not completed
+            if first_activity_completed:
+                return has_required_files
+            
+            # For older folders (first_activity_completed = False), check both files and outline_content
+            # This is for backwards compatibility
+            if has_required_files:
+                return True
+            
+            # Check outline_content only for older folders
             try:
                 outline = getattr(obj, 'outline_content', None) or {}
                 if isinstance(outline, dict):
-                    has_final_in_outline = bool(
-                        outline.get('final') or 
-                        outline.get('finalExam') or 
-                        outline.get('finalPaper') or 
-                        outline.get('finalSolution') or 
-                        outline.get('finalRecords')
+                    # Check if final term data exists and has meaningful content
+                    final_data = outline.get('final') or {}
+                    final_exam = outline.get('finalExam') or {}
+                    final_paper = outline.get('finalPaper') or {}
+                    final_solution = outline.get('finalSolution') or {}
+                    final_records = outline.get('finalRecords') or {}
+                    
+                    # Check if any of these have meaningful content (not just empty dicts/arrays)
+                    def has_meaningful_content(data):
+                        """Check if data has meaningful content"""
+                        if not data:
+                            return False
+                        if isinstance(data, dict):
+                            # Check if dict has any non-empty values
+                            return any(v for v in data.values() if v)
+                        if isinstance(data, list):
+                            # Check if list has any items
+                            return len(data) > 0
+                        # For strings/other types, check if truthy
+                        return bool(data)
+                    
+                    return (
+                        has_meaningful_content(final_data) or
+                        has_meaningful_content(final_exam) or
+                        has_meaningful_content(final_paper) or
+                        has_meaningful_content(final_solution) or
+                        has_meaningful_content(final_records)
                     )
                 else:
-                    has_final_in_outline = False
+                    return False
             except Exception:
-                has_final_in_outline = False
+                return False
             
-            return has_required_files or has_final_in_outline
         except Exception as e:
             # If there's any error, return False to be safe
             import logging

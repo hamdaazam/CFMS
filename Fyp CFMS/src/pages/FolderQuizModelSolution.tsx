@@ -7,6 +7,7 @@ import AuditMemberFeedbackBox from '../components/common/AuditMemberFeedbackBox'
 import RichTextEditor from '../components/common/RichTextEditor';
 import { useReviewMode } from '../hooks/useReviewMode';
 import { FolderContentsNav } from '../components/common/FolderContentsNav';
+import { canEditFolder } from '../utils/folderPermissions';
 
 interface Answer {
   id: string;

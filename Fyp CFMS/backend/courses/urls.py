@@ -1,9 +1,16 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CourseViewSet, CourseAllocationViewSet, CourseExcelUploadView, CourseAllocationExcelUploadView
+from .views import (
+    CourseViewSet, 
+    CourseAllocationViewSet, 
+    CourseCoordinatorAssignmentViewSet,
+    CourseExcelUploadView, 
+    CourseAllocationExcelUploadView
+)
 
 router = DefaultRouter()
 router.register(r'allocations', CourseAllocationViewSet, basename='course-allocation')
+router.register(r'coordinator-assignments', CourseCoordinatorAssignmentViewSet, basename='coordinator-assignment')
 router.register(r'', CourseViewSet, basename='course')
 
 urlpatterns = [

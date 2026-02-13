@@ -3,6 +3,13 @@
 import os
 import sys
 
+# Initialize PyMySQL as MySQLdb replacement BEFORE Django imports
+try:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass  # PyMySQL not available, will use mysqlclient if installed
+
 
 def main():
     """Run administrative tasks."""

@@ -323,6 +323,40 @@ def generate_assignment_section(folder):
     print(f"DEBUG: Paper keys in order: {paper_keys_list}")
     print(f"DEBUG: Solution keys in order: {solution_keys_list}")
     
+    # Get all Assessment model entries upfront for reference
+    try:
+        from course_folders.models import Assessment
+        all_assessment_entries = list(Assessment.objects.filter(
+            folder=folder,
+            assessment_type='ASSIGNMENT'
+        ).order_by('number'))
+        print(f"DEBUG: Found {len(all_assessment_entries)} Assessment model entries for assignments")
+        for i, assmt in enumerate(all_assessment_entries):
+            qp_exists = False
+            ms_exists = False
+            if assmt.question_paper:
+                try:
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assmt.question_paper.name)
+                    qp_exists = os.path.exists(file_path)
+                except:
+                    pass
+            if assmt.model_solution:
+                try:
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assmt.model_solution.name)
+                    ms_exists = os.path.exists(file_path)
+                except:
+                    pass
+            print(f"DEBUG:   [{i}] {assmt.title} (number={assmt.number}, id={assmt.id}, has_qp={bool(assmt.question_paper)}, qp_exists={qp_exists}, has_ms={bool(assmt.model_solution)}, ms_exists={ms_exists})")
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+        import traceback
+        traceback.print_exc()
+        all_assessment_entries = []
+    
     for idx, assignment in enumerate(assignments):
         assignment_id = assignment.get('id')
         # Ensure ID is a string for consistent dictionary key matching
@@ -330,7 +364,12 @@ def generate_assignment_section(folder):
         assignment_id = str(assignment_id) if assignment_id is not None else None
         assignment_name = assignment.get('name', f"Assignment {assignment_id}")
         
-        print(f"DEBUG: Processing {assignment_name} (ID: {assignment_id}, type: {type(assignment_id)})")
+        print(f"DEBUG: Processing {assignment_name} (ID: {assignment_id}, type: {type(assignment_id)}, index: {idx})")
+        
+        # Store Assessment entry by index for direct access
+        if idx < len(all_assessment_entries):
+            assignment._assessment_entry = all_assessment_entries[idx]
+            print(f"DEBUG: Linked Assessment entry: {all_assessment_entries[idx].title} (number={all_assessment_entries[idx].number})")
         
         # Strategy 1: Try to match by ID (exact match)
         paper_key = None
@@ -413,13 +452,108 @@ def generate_assignment_section(folder):
         
         # 1. Question Paper - Always generate
         try:
-            # Pass the actual data we found to avoid re-lookup issues
-            qp_bytes = generate_assignment_question_paper(folder, effective_paper_key, assignment_name, paper_data=paper_data)
+            qp_bytes = None
+            
+            # FIRST: Check if paper_data has a base64 PDF fileData (uploaded PDF)
+            if paper_data and isinstance(paper_data, dict) and paper_data.get('fileData'):
+                try:
+                    import base64
+                    file_data_str = str(paper_data.get('fileData', ''))
+                    if file_data_str and file_data_str.startswith('data:application/pdf;base64,'):
+                        base64_str = file_data_str.split(',')[1]
+                        if base64_str:
+                            pdf_bytes = base64.b64decode(base64_str)
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                # Validate PDF before processing - use strict=False for PDFs with images
+                                try:
+                                    test_reader = PdfReader(io.BytesIO(pdf_bytes), strict=False)
+                                    num_pages = len(test_reader.pages)
+                                    print(f"DEBUG: ✓ Found {assignment_name} Question Paper from base64 fileData ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                    qp_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                                except Exception as pdf_validate_error:
+                                    print(f"DEBUG: PDF validation failed for {assignment_name} Question Paper (base64): {pdf_validate_error}")
+                                    # Still try to add header
+                                    qp_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                except Exception as e:
+                    print(f"DEBUG: Error decoding base64 fileData for {assignment_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # SECOND: Try direct Assessment entry access (by index) - this is the most reliable
+            if not qp_bytes:
+                direct_assessment = getattr(assignment, '_assessment_entry', None)
+                if direct_assessment and direct_assessment.question_paper:
+                    try:
+                        import os
+                        from django.conf import settings
+                        file_path = os.path.join(settings.MEDIA_ROOT, direct_assessment.question_paper.name)
+                        if os.path.exists(file_path):
+                            with open(file_path, 'rb') as f:
+                                pdf_bytes = f.read()
+                                if pdf_bytes and len(pdf_bytes) > 0:
+                                    # Validate PDF before processing - use strict=False for PDFs with images
+                                    try:
+                                        test_reader = PdfReader(io.BytesIO(pdf_bytes), strict=False)
+                                        num_pages = len(test_reader.pages)
+                                        print(f"DEBUG: ✓ Found {assignment_name} Question Paper from direct Assessment entry ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                        qp_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                                    except Exception as pdf_validate_error:
+                                        print(f"DEBUG: PDF validation failed for {assignment_name} Question Paper (direct): {pdf_validate_error}")
+                                        qp_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                        else:
+                            # Try Django file field
+                            try:
+                                with direct_assessment.question_paper.open('rb') as f:
+                                    pdf_bytes = f.read()
+                                    if pdf_bytes and len(pdf_bytes) > 0:
+                                        # Validate PDF before processing - use strict=False for PDFs with images
+                                        try:
+                                            test_reader = PdfReader(io.BytesIO(pdf_bytes), strict=False)
+                                            num_pages = len(test_reader.pages)
+                                            print(f"DEBUG: ✓ Found {assignment_name} Question Paper from Django file field ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                            qp_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                                        except Exception as pdf_validate_error:
+                                            print(f"DEBUG: PDF validation failed for {assignment_name} Question Paper (Django field): {pdf_validate_error}")
+                                            qp_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                            except Exception as e:
+                                print(f"DEBUG: Error reading from Django file field: {e}")
+                    except Exception as e:
+                        print(f"DEBUG: Error accessing direct Assessment entry: {e}")
+            
+            # THIRD: If not found, try normal generation (which also checks Assessment model and generates from questions)
+            if not qp_bytes:
+                qp_bytes = generate_assignment_question_paper(folder, effective_paper_key, assignment_name, paper_data=paper_data, assignment_index=idx)
             
             # Accept any non-empty PDF bytes (even if small, it's valid)
+            # CRITICAL: Validate that it's a readable PDF with at least one page before adding
             if qp_bytes and len(qp_bytes) > 0:
-                sections.append((f"{assignment_name} Question Paper", qp_bytes))
-                print(f"DEBUG: ✓ Added {assignment_name} Question Paper ({len(qp_bytes)} bytes) using key: {effective_paper_key}")
+                # Final validation: ensure it's a valid PDF that can be read and has pages - use strict=False for PDFs with images
+                try:
+                    test_reader = PdfReader(io.BytesIO(qp_bytes), strict=False)
+                    num_pages = len(test_reader.pages)
+                    if num_pages > 0:
+                        # Double-check: try to access at least the first page to ensure it's not corrupted
+                        try:
+                            first_page = test_reader.pages[0]
+                            # Try to get page dimensions to ensure page is valid
+                            _ = float(first_page.mediabox.width)
+                            _ = float(first_page.mediabox.height)
+                            sections.append((f"{assignment_name} Question Paper", qp_bytes))
+                            print(f"DEBUG: ✓ Added {assignment_name} Question Paper ({len(qp_bytes)} bytes, {num_pages} page(s))")
+                        except Exception as page_access_error:
+                            print(f"DEBUG: ✗ Cannot access first page of {assignment_name} Question Paper: {page_access_error}")
+                            import traceback
+                            traceback.print_exc()
+                            sections.append((f"{assignment_name} Question Paper", create_missing_page_placeholder(f"{assignment_name} Question Paper")))
+                    else:
+                        print(f"DEBUG: ✗ {assignment_name} Question Paper has 0 pages - generating placeholder")
+                        sections.append((f"{assignment_name} Question Paper", create_missing_page_placeholder(f"{assignment_name} Question Paper")))
+                except Exception as final_check_error:
+                    print(f"DEBUG: ✗ Final PDF validation failed for {assignment_name} Question Paper: {final_check_error}")
+                    import traceback
+                    traceback.print_exc()
+                    # If we can't read it, it's likely corrupted - add placeholder
+                    sections.append((f"{assignment_name} Question Paper", create_missing_page_placeholder(f"{assignment_name} Question Paper")))
             else:
                 print(f"DEBUG: ✗ {assignment_name} Question Paper returned empty/None bytes - generating placeholder")
                 sections.append((f"{assignment_name} Question Paper", create_missing_page_placeholder(f"{assignment_name} Question Paper")))
@@ -432,15 +566,119 @@ def generate_assignment_section(folder):
             
         # 2. Model Solution - Always generate
         try:
-            # Pass the actual data we found to avoid re-lookup issues
-            ms_bytes = generate_assignment_model_solution(folder, effective_sol_key, assignment_name, sol_data=sol_data)
+            ms_bytes = None
+            
+            # FIRST: Check if sol_data has a base64 PDF fileData (uploaded PDF)
+            if sol_data and isinstance(sol_data, dict) and sol_data.get('fileData'):
+                try:
+                    import base64
+                    file_data_str = str(sol_data.get('fileData', ''))
+                    if file_data_str and file_data_str.startswith('data:application/pdf;base64,'):
+                        base64_str = file_data_str.split(',')[1]
+                        if base64_str:
+                            pdf_bytes = base64.b64decode(base64_str)
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                # Validate PDF before processing
+                                try:
+                                    test_reader = PdfReader(io.BytesIO(pdf_bytes))
+                                    num_pages = len(test_reader.pages)
+                                    print(f"DEBUG: ✓ Found {assignment_name} Model Solution from base64 fileData ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                    ms_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                except Exception as pdf_validate_error:
+                                    print(f"DEBUG: PDF validation failed for {assignment_name} Model Solution (base64): {pdf_validate_error}")
+                                    ms_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                except Exception as e:
+                    print(f"DEBUG: Error decoding base64 fileData for {assignment_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # SECOND: Check if we have a direct Assessment entry reference from index matching
+            if not ms_bytes:
+                direct_assessment = getattr(assignment, '_assessment_entry', None)
+                if direct_assessment and direct_assessment.model_solution:
+                    try:
+                        import os
+                        from django.conf import settings
+                        # Try to read the file directly
+                        file_path = os.path.join(settings.MEDIA_ROOT, direct_assessment.model_solution.name)
+                        if os.path.exists(file_path):
+                            with open(file_path, 'rb') as f:
+                                pdf_bytes = f.read()
+                                if pdf_bytes and len(pdf_bytes) > 0:
+                                    # Validate PDF before processing
+                                    try:
+                                        test_reader = PdfReader(io.BytesIO(pdf_bytes))
+                                        num_pages = len(test_reader.pages)
+                                        print(f"DEBUG: ✓ Found {assignment_name} Model Solution from direct Assessment entry ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                        ms_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                    except Exception as pdf_validate_error:
+                                        print(f"DEBUG: PDF validation failed for {assignment_name} Model Solution (direct): {pdf_validate_error}")
+                                        ms_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                else:
+                                    ms_bytes = None
+                        else:
+                            # Try Django file field access
+                            try:
+                                with direct_assessment.model_solution.open('rb') as f:
+                                    pdf_bytes = f.read()
+                                    if pdf_bytes and len(pdf_bytes) > 0:
+                                        # Validate PDF before processing
+                                        try:
+                                            test_reader = PdfReader(io.BytesIO(pdf_bytes))
+                                            num_pages = len(test_reader.pages)
+                                            print(f"DEBUG: ✓ Found {assignment_name} Model Solution from Django file field ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                            ms_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                        except Exception as pdf_validate_error:
+                                            print(f"DEBUG: PDF validation failed for {assignment_name} Model Solution (Django field): {pdf_validate_error}")
+                                            ms_bytes = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                    else:
+                                        ms_bytes = None
+                            except:
+                                ms_bytes = None
+                    except Exception as e:
+                        print(f"DEBUG: Error reading direct Assessment entry file: {e}")
+                        ms_bytes = None
+            
+            # THIRD: If we didn't get it from direct assessment or base64, try normal generation
+            if not ms_bytes:
+                # Pass the actual data we found to avoid re-lookup issues
+                # Also pass the index to help with Assessment model matching
+                ms_bytes = generate_assignment_model_solution(folder, effective_sol_key, assignment_name, sol_data=sol_data, assignment_index=idx)
             
             # Accept any non-empty PDF bytes (even if small, it's valid)
+            # CRITICAL: Validate that it's a readable PDF with at least one page before adding
             if ms_bytes and len(ms_bytes) > 0:
-                sections.append((f"{assignment_name} Model Solution", ms_bytes))
-                print(f"DEBUG: ✓ Added {assignment_name} Model Solution ({len(ms_bytes)} bytes) using key: {effective_sol_key}")
+                # Final validation: ensure it's a valid PDF that can be read and has pages
+                try:
+                    test_reader = PdfReader(io.BytesIO(ms_bytes))
+                    num_pages = len(test_reader.pages)
+                    if num_pages > 0:
+                        # Double-check: try to access at least the first page to ensure it's not corrupted
+                        try:
+                            first_page = test_reader.pages[0]
+                            # Try to get page dimensions to ensure page is valid
+                            _ = float(first_page.mediabox.width)
+                            _ = float(first_page.mediabox.height)
+                            sections.append((f"{assignment_name} Model Solution", ms_bytes))
+                            print(f"DEBUG: ✓ Added {assignment_name} Model Solution ({len(ms_bytes)} bytes, {num_pages} page(s)) using key: {effective_sol_key}")
+                        except Exception as page_access_error:
+                            print(f"DEBUG: ✗ Cannot access first page of {assignment_name} Model Solution: {page_access_error}")
+                            import traceback
+                            traceback.print_exc()
+                            sections.append((f"{assignment_name} Model Solution", create_missing_page_placeholder(f"{assignment_name} Model Solution")))
+                    else:
+                        print(f"DEBUG: ✗ {assignment_name} Model Solution has 0 pages - generating placeholder")
+                        sections.append((f"{assignment_name} Model Solution", create_missing_page_placeholder(f"{assignment_name} Model Solution")))
+                except Exception as final_check_error:
+                    print(f"DEBUG: ✗ Final PDF validation failed for {assignment_name} Model Solution: {final_check_error}")
+                    import traceback
+                    traceback.print_exc()
+                    # If we can't read it, it's likely corrupted - add placeholder
+                    sections.append((f"{assignment_name} Model Solution", create_missing_page_placeholder(f"{assignment_name} Model Solution")))
             else:
-                print(f"DEBUG: ✗ {assignment_name} Model Solution returned empty/None bytes - generating placeholder")
+                print(f"DEBUG: ✗ {assignment_name} Model Solution returned empty/None bytes")
+                # Don't add placeholder immediately - check if Assessment model has it
+                # The function should have checked Assessment model already, so if it's still empty, add placeholder
                 sections.append((f"{assignment_name} Model Solution", create_missing_page_placeholder(f"{assignment_name} Model Solution")))
         except Exception as e:
             print(f"ERROR generating Model Solution for {assignment_name}: {e}")
@@ -485,8 +723,192 @@ def generate_assignment_section(folder):
     return sections
 
 
-def generate_assignment_question_paper(folder, assignment_id, assignment_name, paper_data=None):
+def generate_assignment_question_paper(folder, assignment_id, assignment_name, paper_data=None, assignment_index=None):
     """Generate the Assignment Question Paper PDF."""
+    
+    # FIRST: Check Assessment model for uploaded PDF file
+    try:
+        from course_folders.models import Assessment
+        
+        # Get ALL assignments for this folder
+        all_assessments = list(Assessment.objects.filter(
+            folder=folder,
+            assessment_type='ASSIGNMENT'
+        ).order_by('number'))
+        
+        print(f"DEBUG: Found {len(all_assessments)} Assessment entries for assignments")
+        for idx, assmt in enumerate(all_assessments):
+            print(f"DEBUG:   [{idx}] {assmt.title} (number={assmt.number}, has_qp={bool(assmt.question_paper)})")
+        
+        assessment = None
+        
+        # Strategy 1: Extract number from assignment_name (e.g., "Assignment 1", "assign 2", "Assignment1")
+        assignment_number = None
+        try:
+            import re
+            # Try to find any number in the name
+            match = re.search(r'(\d+)', assignment_name)
+            if match:
+                assignment_number = int(match.group(1))
+                print(f"DEBUG: Extracted assignment number: {assignment_number} from '{assignment_name}'")
+        except Exception as e:
+            print(f"DEBUG: Error extracting number: {e}")
+        
+        # Strategy 2: Try to find by number
+        if assignment_number and not assessment:
+            try:
+                assessment = next((a for a in all_assessments if a.number == assignment_number), None)
+                if assessment:
+                    print(f"DEBUG: Found assessment by number {assignment_number}: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error finding assessment by number: {e}")
+        
+        # Strategy 3: Try to match by title (case-insensitive, partial match)
+        if not assessment:
+            try:
+                normalized_name = assignment_name.lower().strip().replace(' ', '')
+                for assmt in all_assessments:
+                    normalized_title = assmt.title.lower().strip().replace(' ', '')
+                    # Check if names match (either contains the other)
+                    if (normalized_name in normalized_title or 
+                        normalized_title in normalized_name or
+                        normalized_name == normalized_title):
+                        assessment = assmt
+                        print(f"DEBUG: Found assessment by title match: '{assmt.title}' matches '{assignment_name}'")
+                        break
+            except Exception as e:
+                print(f"DEBUG: Error finding assessment by title: {e}")
+        
+        # Strategy 4: Try by index position (if assignment_index is provided)
+        if not assessment and assignment_index is not None and assignment_index < len(all_assessments):
+            try:
+                assessment = all_assessments[assignment_index]
+                print(f"DEBUG: Found assessment by index position {assignment_index}: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error finding assessment by index: {e}")
+        
+        # Strategy 5: If still not found, try matching by extracted number to any assessment number
+        if not assessment and assignment_number:
+            try:
+                # Try to find any assessment where the number matches
+                assessment = next((a for a in all_assessments if str(a.number) == str(assignment_number)), None)
+                if assessment:
+                    print(f"DEBUG: Found assessment by number string match: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error in number string match: {e}")
+        
+        # If found and has uploaded PDF, use it
+        if assessment and assessment.question_paper:
+            try:
+                pdf_bytes = None
+                # Try to open the file directly - this will work even if storage.exists() fails
+                try:
+                    with assessment.question_paper.open('rb') as f:
+                        # Read entire file - important for multi-page PDFs
+                        pdf_bytes = f.read()
+                        if pdf_bytes and len(pdf_bytes) > 0:
+                            # Validate PDF can be read before processing - CRITICAL for multi-page PDFs with images
+                            try:
+                                test_reader = PdfReader(io.BytesIO(pdf_bytes), strict=False)
+                                num_pages = len(test_reader.pages)
+                                print(f"DEBUG: ✓ Found uploaded PDF for {assignment_name} Question Paper from Assessment model ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                if num_pages == 0:
+                                    print(f"DEBUG: WARNING - PDF has 0 pages, skipping")
+                                    return None
+                                # Add header - this should handle multi-page PDFs with images correctly
+                                result = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                                # Validate result is still a valid PDF
+                                if result and len(result) > 0:
+                                    try:
+                                        result_reader = PdfReader(io.BytesIO(result), strict=False)
+                                        result_pages = len(result_reader.pages)
+                                        if result_pages > 0:
+                                            print(f"DEBUG: ✓ Header added successfully - result has {result_pages} page(s)")
+                                            return result
+                                        else:
+                                            print(f"DEBUG: ERROR - Result PDF has 0 pages after header addition")
+                                            return None
+                                    except Exception as result_check_error:
+                                        print(f"DEBUG: ERROR - Result PDF validation failed: {result_check_error}")
+                                        # Return original if result is invalid
+                                        return pdf_bytes
+                                return result
+                            except Exception as pdf_validate_error:
+                                print(f"DEBUG: PDF validation failed for {assignment_name} Question Paper: {pdf_validate_error}")
+                                import traceback
+                                traceback.print_exc()
+                                # Still try to add header - might work even if validation fails
+                                result = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                                # If header addition fails, return original bytes as last resort
+                                if result and len(result) > 0:
+                                    return result
+                                return pdf_bytes
+                        else:
+                            print(f"DEBUG: Assessment PDF file exists but is empty")
+                except FileNotFoundError:
+                    # Try alternative path resolution
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assessment.question_paper.name)
+                    print(f"DEBUG: Trying alternative path: {file_path}")
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            # Read entire file - important for multi-page PDFs
+                            pdf_bytes = f.read()
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                # Validate PDF can be read - CRITICAL for multi-page PDFs
+                                try:
+                                    test_reader = PdfReader(io.BytesIO(pdf_bytes))
+                                    num_pages = len(test_reader.pages)
+                                    print(f"DEBUG: ✓ Found uploaded PDF using alternative path ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                    if num_pages == 0:
+                                        print(f"DEBUG: WARNING - PDF has 0 pages, skipping")
+                                        return None
+                                    # Add header - this should handle multi-page PDFs correctly
+                                    result = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                                    # Validate result is still a valid PDF
+                                    if result and len(result) > 0:
+                                        try:
+                                            result_reader = PdfReader(io.BytesIO(result))
+                                            result_pages = len(result_reader.pages)
+                                            if result_pages > 0:
+                                                print(f"DEBUG: ✓ Header added successfully (alt path) - result has {result_pages} page(s)")
+                                                return result
+                                            else:
+                                                print(f"DEBUG: ERROR - Result PDF has 0 pages after header addition (alt path)")
+                                                return None
+                                        except Exception as result_check_error:
+                                            print(f"DEBUG: ERROR - Result PDF validation failed (alt path): {result_check_error}")
+                                            return pdf_bytes
+                                    return result
+                                except Exception as pdf_validate_error:
+                                    print(f"DEBUG: PDF validation failed for {assignment_name} Question Paper (alt path): {pdf_validate_error}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    result = add_header_to_pdf(pdf_bytes, f"{assignment_name} Question Paper")
+                                    if result and len(result) > 0:
+                                        return result
+                                    return pdf_bytes
+                    else:
+                        print(f"DEBUG: Assessment PDF file not found at: {file_path}")
+                except Exception as e:
+                    print(f"DEBUG: Error reading uploaded PDF from Assessment model: {e}")
+                    import traceback
+                    traceback.print_exc()
+            except Exception as e:
+                print(f"DEBUG: Error accessing Assessment PDF: {e}")
+                import traceback
+                traceback.print_exc()
+        elif assessment:
+            print(f"DEBUG: Assessment found but no question_paper file: {assessment.title}")
+        else:
+            print(f"DEBUG: ✗ No Assessment model entry found for '{assignment_name}' (tried number={assignment_number}, index={assignment_index})")
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # SECOND: Generate PDF from outline_content data
     buffer = io.BytesIO()
     c = pdf_canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -652,10 +1074,184 @@ def generate_assignment_question_paper(folder, assignment_id, assignment_name, p
     return pdf_bytes
 
 
-def generate_assignment_model_solution(folder, assignment_id, assignment_name, sol_data=None):
+def generate_assignment_model_solution(folder, assignment_id, assignment_name, sol_data=None, assignment_index=None):
     """Generate or Fetch the Assignment Model Solution PDF."""
     
-    # 1. Check for uploaded PDF - use provided data or look it up
+    # FIRST: Check Assessment model for uploaded PDF file
+    try:
+        from course_folders.models import Assessment
+        
+        # Get ALL assignments for this folder
+        all_assessments = list(Assessment.objects.filter(
+            folder=folder,
+            assessment_type='ASSIGNMENT'
+        ).order_by('number'))
+        
+        assessment = None
+        
+        # Strategy 1: Extract number from assignment_name
+        assignment_number = None
+        try:
+            import re
+            match = re.search(r'(\d+)', assignment_name)
+            if match:
+                assignment_number = int(match.group(1))
+                print(f"DEBUG: Extracted assignment number: {assignment_number} from '{assignment_name}'")
+        except Exception as e:
+            print(f"DEBUG: Error extracting number: {e}")
+        
+        # Strategy 2: Try to find by number
+        if assignment_number and not assessment:
+            try:
+                assessment = next((a for a in all_assessments if a.number == assignment_number), None)
+                if assessment:
+                    print(f"DEBUG: Found assessment by number {assignment_number}: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error finding assessment by number: {e}")
+        
+        # Strategy 3: Try to match by title (case-insensitive, partial match)
+        if not assessment:
+            try:
+                normalized_name = assignment_name.lower().strip().replace(' ', '')
+                for assmt in all_assessments:
+                    normalized_title = assmt.title.lower().strip().replace(' ', '')
+                    if (normalized_name in normalized_title or 
+                        normalized_title in normalized_name or
+                        normalized_name == normalized_title):
+                        assessment = assmt
+                        print(f"DEBUG: Found assessment by title match: '{assmt.title}' matches '{assignment_name}'")
+                        break
+            except Exception as e:
+                print(f"DEBUG: Error finding assessment by title: {e}")
+        
+        # Strategy 4: Try by index position
+        if not assessment and assignment_index is not None and assignment_index < len(all_assessments):
+            try:
+                assessment = all_assessments[assignment_index]
+                print(f"DEBUG: Found assessment by index position {assignment_index}: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error finding assessment by index: {e}")
+        
+        # Strategy 5: Try matching by extracted number to any assessment number
+        if not assessment and assignment_number:
+            try:
+                assessment = next((a for a in all_assessments if str(a.number) == str(assignment_number)), None)
+                if assessment:
+                    print(f"DEBUG: Found assessment by number string match: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error in number string match: {e}")
+        
+        # If found and has uploaded PDF, use it
+        if assessment and assessment.model_solution:
+            try:
+                pdf_bytes = None
+                # Try to open the file directly - this will work even if storage.exists() fails
+                try:
+                    with assessment.model_solution.open('rb') as f:
+                        # Read entire file - important for multi-page PDFs
+                        pdf_bytes = f.read()
+                        if pdf_bytes and len(pdf_bytes) > 0:
+                            # Validate PDF can be read before processing - CRITICAL for multi-page PDFs
+                            try:
+                                test_reader = PdfReader(io.BytesIO(pdf_bytes))
+                                num_pages = len(test_reader.pages)
+                                print(f"DEBUG: ✓ Found uploaded PDF for {assignment_name} Model Solution from Assessment model ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                if num_pages == 0:
+                                    print(f"DEBUG: WARNING - PDF has 0 pages, skipping")
+                                    return None
+                                # Add header - this should handle multi-page PDFs correctly
+                                result = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                # Validate result is still a valid PDF
+                                if result and len(result) > 0:
+                                    try:
+                                        result_reader = PdfReader(io.BytesIO(result))
+                                        result_pages = len(result_reader.pages)
+                                        if result_pages > 0:
+                                            print(f"DEBUG: ✓ Header added successfully - result has {result_pages} page(s)")
+                                            return result
+                                        else:
+                                            print(f"DEBUG: ERROR - Result PDF has 0 pages after header addition")
+                                            return None
+                                    except Exception as result_check_error:
+                                        print(f"DEBUG: ERROR - Result PDF validation failed: {result_check_error}")
+                                        # Return original if result is invalid
+                                        return pdf_bytes
+                                return result
+                            except Exception as pdf_validate_error:
+                                print(f"DEBUG: PDF validation failed for {assignment_name} Model Solution: {pdf_validate_error}")
+                                import traceback
+                                traceback.print_exc()
+                                # Still try to add header - might work even if validation fails
+                                result = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                if result and len(result) > 0:
+                                    return result
+                                return pdf_bytes
+                        else:
+                            print(f"DEBUG: Assessment PDF file exists but is empty")
+                except FileNotFoundError:
+                    # Try alternative path resolution
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assessment.model_solution.name)
+                    print(f"DEBUG: Trying alternative path: {file_path}")
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            # Read entire file - important for multi-page PDFs
+                            pdf_bytes = f.read()
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                # Validate PDF can be read - CRITICAL for multi-page PDFs
+                                try:
+                                    test_reader = PdfReader(io.BytesIO(pdf_bytes))
+                                    num_pages = len(test_reader.pages)
+                                    print(f"DEBUG: ✓ Found uploaded PDF using alternative path ({len(pdf_bytes)} bytes, {num_pages} page(s))")
+                                    if num_pages == 0:
+                                        print(f"DEBUG: WARNING - PDF has 0 pages, skipping")
+                                        return None
+                                    # Add header - this should handle multi-page PDFs correctly
+                                    result = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                    # Validate result is still a valid PDF
+                                    if result and len(result) > 0:
+                                        try:
+                                            result_reader = PdfReader(io.BytesIO(result))
+                                            result_pages = len(result_reader.pages)
+                                            if result_pages > 0:
+                                                print(f"DEBUG: ✓ Header added successfully (alt path) - result has {result_pages} page(s)")
+                                                return result
+                                            else:
+                                                print(f"DEBUG: ERROR - Result PDF has 0 pages after header addition (alt path)")
+                                                return None
+                                        except Exception as result_check_error:
+                                            print(f"DEBUG: ERROR - Result PDF validation failed (alt path): {result_check_error}")
+                                            return pdf_bytes
+                                    return result
+                                except Exception as pdf_validate_error:
+                                    print(f"DEBUG: PDF validation failed for {assignment_name} Model Solution (alt path): {pdf_validate_error}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    result = add_header_to_pdf(pdf_bytes, f"{assignment_name} Model Solution")
+                                    if result and len(result) > 0:
+                                        return result
+                                    return pdf_bytes
+                    else:
+                        print(f"DEBUG: Assessment PDF file not found at: {file_path}")
+                except Exception as e:
+                    print(f"DEBUG: Error reading uploaded PDF from Assessment model: {e}")
+                    import traceback
+                    traceback.print_exc()
+            except Exception as e:
+                print(f"DEBUG: Error accessing Assessment PDF: {e}")
+                import traceback
+                traceback.print_exc()
+        elif assessment:
+            print(f"DEBUG: Assessment found but no model_solution file: {assessment.title}")
+        else:
+            print(f"DEBUG: ✗ No Assessment model entry found for '{assignment_name}' (tried number={assignment_number}, index={assignment_index})")
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # SECOND: Check for uploaded PDF in outline_content - use provided data or look it up
     if sol_data is None:
         outline_content = folder.outline_content or {}
         solutions = outline_content.get('assignmentSolutions', {})
@@ -671,7 +1267,7 @@ def generate_assignment_model_solution(folder, assignment_id, assignment_name, s
     
     print(f"DEBUG: generate_assignment_model_solution - assignment_id: {assignment_id}, sol_data keys: {list(sol_data.keys()) if sol_data else 'None'}")
     
-    pdf_url = sol_data.get('model_solution_pdf')
+    pdf_url = sol_data.get('model_solution_pdf') if sol_data else None
     
     print(f"DEBUG: Checking Model Solution PDF for {assignment_name}. URL: {pdf_url}")
     
@@ -971,8 +1567,28 @@ def generate_quiz_section(folder):
         
         # 1. Question Paper - Always generate
         try:
-            # Pass the actual data we found to avoid re-lookup issues
-            qp_bytes = generate_quiz_question_paper(folder, effective_paper_key, quiz_name, paper_data=paper_data)
+            qp_bytes = None
+            
+            # FIRST: Check if paper_data has a base64 PDF fileData (uploaded PDF)
+            if paper_data and isinstance(paper_data, dict) and paper_data.get('fileData'):
+                try:
+                    import base64
+                    file_data_str = str(paper_data.get('fileData', ''))
+                    if file_data_str and file_data_str.startswith('data:application/pdf;base64,'):
+                        base64_str = file_data_str.split(',')[1]
+                        if base64_str:
+                            pdf_bytes = base64.b64decode(base64_str)
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                qp_bytes = add_header_to_pdf(pdf_bytes, f"{quiz_name} Question Paper")
+                                print(f"DEBUG: ✓ Found {quiz_name} Question Paper from base64 fileData ({len(pdf_bytes)} bytes)")
+                except Exception as e:
+                    print(f"DEBUG: Error decoding base64 fileData for {quiz_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # SECOND: If not found, try normal generation (which also checks Assessment model)
+            if not qp_bytes:
+                qp_bytes = generate_quiz_question_paper(folder, effective_paper_key, quiz_name, paper_data=paper_data, quiz_index=idx)
             
             # Accept any non-empty PDF bytes (even if small, it's valid)
             if qp_bytes and len(qp_bytes) > 0:
@@ -990,8 +1606,28 @@ def generate_quiz_section(folder):
             
         # 2. Model Solution - Always generate
         try:
-            # Pass the actual data we found to avoid re-lookup issues
-            ms_bytes = generate_quiz_model_solution(folder, effective_sol_key, quiz_name, sol_data=sol_data)
+            ms_bytes = None
+            
+            # FIRST: Check if sol_data has a base64 PDF fileData (uploaded PDF)
+            if sol_data and isinstance(sol_data, dict) and sol_data.get('fileData'):
+                try:
+                    import base64
+                    file_data_str = str(sol_data.get('fileData', ''))
+                    if file_data_str and file_data_str.startswith('data:application/pdf;base64,'):
+                        base64_str = file_data_str.split(',')[1]
+                        if base64_str:
+                            pdf_bytes = base64.b64decode(base64_str)
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                ms_bytes = add_header_to_pdf(pdf_bytes, f"{quiz_name} Model Solution")
+                                print(f"DEBUG: ✓ Found {quiz_name} Model Solution from base64 fileData ({len(pdf_bytes)} bytes)")
+                except Exception as e:
+                    print(f"DEBUG: Error decoding base64 fileData for {quiz_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # SECOND: If not found, try normal generation (which also checks Assessment model)
+            if not ms_bytes:
+                ms_bytes = generate_quiz_model_solution(folder, effective_sol_key, quiz_name, sol_data=sol_data, quiz_index=idx)
             
             # Accept any non-empty PDF bytes (even if small, it's valid)
             if ms_bytes and len(ms_bytes) > 0:
@@ -1043,8 +1679,121 @@ def generate_quiz_section(folder):
     return sections
 
 
-def generate_quiz_question_paper(folder, quiz_id, quiz_name, paper_data=None):
+def generate_quiz_question_paper(folder, quiz_id, quiz_name, paper_data=None, quiz_index=None):
     """Generate the Quiz Question Paper PDF."""
+    
+    # FIRST: Check Assessment model for uploaded PDF file
+    try:
+        from course_folders.models import Assessment
+        
+        # Get ALL quizzes for this folder
+        all_assessments = list(Assessment.objects.filter(
+            folder=folder,
+            assessment_type='QUIZ'
+        ).order_by('number'))
+        
+        print(f"DEBUG: Found {len(all_assessments)} Assessment entries for quizzes")
+        for idx, assmt in enumerate(all_assessments):
+            print(f"DEBUG:   [{idx}] {assmt.title} (number={assmt.number}, has_qp={bool(assmt.question_paper)})")
+        
+        assessment = None
+        
+        # Strategy 1: Extract number from quiz_name
+        quiz_number = None
+        try:
+            import re
+            match = re.search(r'(\d+)', quiz_name)
+            if match:
+                quiz_number = int(match.group(1))
+                print(f"DEBUG: Extracted quiz number: {quiz_number} from '{quiz_name}'")
+        except Exception as e:
+            print(f"DEBUG: Error extracting number: {e}")
+        
+        # Strategy 2: Try to find by number
+        if quiz_number and not assessment:
+            try:
+                assessment = next((a for a in all_assessments if a.number == quiz_number), None)
+                if assessment:
+                    print(f"DEBUG: Found quiz assessment by number {quiz_number}: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error finding quiz assessment by number: {e}")
+        
+        # Strategy 3: Try to match by title (case-insensitive, partial match)
+        if not assessment:
+            try:
+                normalized_name = quiz_name.lower().strip().replace(' ', '')
+                for quiz_assmt in all_assessments:
+                    normalized_title = quiz_assmt.title.lower().strip().replace(' ', '')
+                    if (normalized_name in normalized_title or 
+                        normalized_title in normalized_name or
+                        normalized_name == normalized_title):
+                        assessment = quiz_assmt
+                        print(f"DEBUG: Found quiz assessment by title match: '{quiz_assmt.title}' matches '{quiz_name}'")
+                        break
+            except Exception as e:
+                print(f"DEBUG: Error finding quiz assessment by title: {e}")
+        
+        # Strategy 4: Try by index position
+        if not assessment and quiz_index is not None and quiz_index < len(all_assessments):
+            try:
+                assessment = all_assessments[quiz_index]
+                print(f"DEBUG: Found quiz assessment by index position {quiz_index}: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error finding quiz assessment by index: {e}")
+        
+        # Strategy 5: Try matching by extracted number to any assessment number
+        if not assessment and quiz_number:
+            try:
+                assessment = next((a for a in all_assessments if str(a.number) == str(quiz_number)), None)
+                if assessment:
+                    print(f"DEBUG: Found quiz assessment by number string match: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error in number string match: {e}")
+        
+        # If found and has uploaded PDF, use it
+        if assessment and assessment.question_paper:
+            try:
+                # Try to open the file directly
+                try:
+                    with assessment.question_paper.open('rb') as f:
+                        pdf_bytes = f.read()
+                        if pdf_bytes and len(pdf_bytes) > 0:
+                            print(f"DEBUG: ✓ Found uploaded PDF for {quiz_name} Question Paper from Assessment model ({len(pdf_bytes)} bytes)")
+                            return add_header_to_pdf(pdf_bytes, f"{quiz_name} Question Paper")
+                        else:
+                            print(f"DEBUG: Quiz PDF file exists but is empty")
+                except FileNotFoundError:
+                    # Try alternative path resolution
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assessment.question_paper.name)
+                    print(f"DEBUG: Trying alternative path: {file_path}")
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            pdf_bytes = f.read()
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                print(f"DEBUG: ✓ Found uploaded PDF using alternative path ({len(pdf_bytes)} bytes)")
+                                return add_header_to_pdf(pdf_bytes, f"{quiz_name} Question Paper")
+                    else:
+                        print(f"DEBUG: Quiz PDF file not found at: {file_path}")
+                except Exception as e:
+                    print(f"DEBUG: Error reading uploaded PDF from Assessment model: {e}")
+                    import traceback
+                    traceback.print_exc()
+            except Exception as e:
+                print(f"DEBUG: Error accessing Quiz PDF: {e}")
+                import traceback
+                traceback.print_exc()
+        elif assessment:
+            print(f"DEBUG: Quiz assessment found but no question_paper file: {assessment.title}")
+        else:
+            print(f"DEBUG: ✗ No Quiz Assessment model entry found for '{quiz_name}' (tried number={quiz_number}, index={quiz_index})")
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # SECOND: Generate PDF from outline_content data
     buffer = io.BytesIO()
     c = pdf_canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -1209,10 +1958,117 @@ def generate_quiz_question_paper(folder, quiz_id, quiz_name, paper_data=None):
     return pdf_bytes
 
 
-def generate_quiz_model_solution(folder, quiz_id, quiz_name, sol_data=None):
+def generate_quiz_model_solution(folder, quiz_id, quiz_name, sol_data=None, quiz_index=None):
     """Generate or Fetch the Quiz Model Solution PDF."""
     
-    # 1. Check for uploaded PDF - use provided data or look it up
+    # FIRST: Check Assessment model for uploaded PDF file
+    try:
+        from course_folders.models import Assessment
+        
+        # Get ALL quizzes for this folder
+        all_assessments = list(Assessment.objects.filter(
+            folder=folder,
+            assessment_type='QUIZ'
+        ).order_by('number'))
+        
+        assessment = None
+        
+        # Strategy 1: Extract number from quiz_name
+        quiz_number = None
+        try:
+            import re
+            match = re.search(r'(\d+)', quiz_name)
+            if match:
+                quiz_number = int(match.group(1))
+                print(f"DEBUG: Extracted quiz number: {quiz_number} from '{quiz_name}'")
+        except Exception as e:
+            print(f"DEBUG: Error extracting number: {e}")
+        
+        # Strategy 2: Try to find by number
+        if quiz_number and not assessment:
+            try:
+                assessment = next((a for a in all_assessments if a.number == quiz_number), None)
+                if assessment:
+                    print(f"DEBUG: Found quiz assessment by number {quiz_number}: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error finding quiz assessment by number: {e}")
+        
+        # Strategy 3: Try to match by title (case-insensitive, partial match)
+        if not assessment:
+            try:
+                normalized_name = quiz_name.lower().strip().replace(' ', '')
+                for quiz_assmt in all_assessments:
+                    normalized_title = quiz_assmt.title.lower().strip().replace(' ', '')
+                    if (normalized_name in normalized_title or 
+                        normalized_title in normalized_name or
+                        normalized_name == normalized_title):
+                        assessment = quiz_assmt
+                        print(f"DEBUG: Found quiz assessment by title match: '{quiz_assmt.title}' matches '{quiz_name}'")
+                        break
+            except Exception as e:
+                print(f"DEBUG: Error finding quiz assessment by title: {e}")
+        
+        # Strategy 4: Try by index position
+        if not assessment and quiz_index is not None and quiz_index < len(all_assessments):
+            try:
+                assessment = all_assessments[quiz_index]
+                print(f"DEBUG: Found quiz assessment by index position {quiz_index}: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error finding quiz assessment by index: {e}")
+        
+        # Strategy 5: Try matching by extracted number to any assessment number
+        if not assessment and quiz_number:
+            try:
+                assessment = next((a for a in all_assessments if str(a.number) == str(quiz_number)), None)
+                if assessment:
+                    print(f"DEBUG: Found quiz assessment by number string match: {assessment.title}")
+            except Exception as e:
+                print(f"DEBUG: Error in number string match: {e}")
+        
+        # If found and has uploaded PDF, use it
+        if assessment and assessment.model_solution:
+            try:
+                # Try to open the file directly
+                try:
+                    with assessment.model_solution.open('rb') as f:
+                        pdf_bytes = f.read()
+                        if pdf_bytes and len(pdf_bytes) > 0:
+                            print(f"DEBUG: ✓ Found uploaded PDF for {quiz_name} Model Solution from Assessment model ({len(pdf_bytes)} bytes)")
+                            return add_header_to_pdf(pdf_bytes, f"{quiz_name} Model Solution")
+                        else:
+                            print(f"DEBUG: Quiz PDF file exists but is empty")
+                except FileNotFoundError:
+                    # Try alternative path resolution
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assessment.model_solution.name)
+                    print(f"DEBUG: Trying alternative path: {file_path}")
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            pdf_bytes = f.read()
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                print(f"DEBUG: ✓ Found uploaded PDF using alternative path ({len(pdf_bytes)} bytes)")
+                                return add_header_to_pdf(pdf_bytes, f"{quiz_name} Model Solution")
+                    else:
+                        print(f"DEBUG: Quiz PDF file not found at: {file_path}")
+                except Exception as e:
+                    print(f"DEBUG: Error reading uploaded PDF from Assessment model: {e}")
+                    import traceback
+                    traceback.print_exc()
+            except Exception as e:
+                print(f"DEBUG: Error accessing Quiz PDF: {e}")
+                import traceback
+                traceback.print_exc()
+        elif assessment:
+            print(f"DEBUG: Quiz assessment found but no model_solution file: {assessment.title}")
+        else:
+            print(f"DEBUG: ✗ No Quiz Assessment model entry found for '{quiz_name}' (tried number={quiz_number}, index={quiz_index})")
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # SECOND: Check for uploaded PDF in outline_content - use provided data or look it up
     if sol_data is None:
         outline_content = folder.outline_content or {}
         solutions = outline_content.get('quizSolutions', {})
@@ -1228,7 +2084,7 @@ def generate_quiz_model_solution(folder, quiz_id, quiz_name, sol_data=None):
     
     print(f"DEBUG: generate_quiz_model_solution - quiz_id: {quiz_id}, sol_data keys: {list(sol_data.keys()) if sol_data else 'None'}")
     
-    pdf_url = sol_data.get('model_solution_pdf')
+    pdf_url = sol_data.get('model_solution_pdf') if sol_data else None
     
     print(f"DEBUG: Checking Model Solution PDF for {quiz_name}. URL: {pdf_url}")
     
@@ -1484,6 +2340,49 @@ def generate_midterm_section(folder):
 
 def generate_midterm_question_paper(folder):
     """Generate the Midterm Question Paper PDF."""
+    
+    # FIRST: Check Assessment model for uploaded PDF file
+    try:
+        from course_folders.models import Assessment
+        # Find midterm assessment (usually number=1 for midterm)
+        assessment = None
+        try:
+            assessment = Assessment.objects.filter(
+                folder=folder,
+                assessment_type='MIDTERM'
+            ).first()
+        except:
+            pass
+        
+        # If found and has uploaded PDF, use it
+        if assessment and assessment.question_paper:
+            try:
+                # Try to open the file directly
+                try:
+                    with assessment.question_paper.open('rb') as f:
+                        pdf_bytes = f.read()
+                        if pdf_bytes and len(pdf_bytes) > 0:
+                            print(f"DEBUG: ✓ Found uploaded PDF for Midterm Question Paper from Assessment model ({len(pdf_bytes)} bytes)")
+                            return add_header_to_pdf(pdf_bytes, "Midterm Question Paper")
+                except FileNotFoundError:
+                    # Try alternative path resolution
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assessment.question_paper.name)
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            pdf_bytes = f.read()
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                print(f"DEBUG: ✓ Found uploaded PDF using alternative path ({len(pdf_bytes)} bytes)")
+                                return add_header_to_pdf(pdf_bytes, "Midterm Question Paper")
+            except Exception as e:
+                print(f"DEBUG: Error reading uploaded PDF from Assessment model: {e}")
+                import traceback
+                traceback.print_exc()
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+    
+    # SECOND: Generate PDF from outline_content data
     buffer = io.BytesIO()
     c = pdf_canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -1637,6 +2536,48 @@ def generate_midterm_question_paper(folder):
 def generate_midterm_model_solution(folder):
     """Generate or Fetch the Midterm Model Solution PDF."""
     
+    # FIRST: Check Assessment model for uploaded PDF file
+    try:
+        from course_folders.models import Assessment
+        # Find midterm assessment (usually number=1 for midterm)
+        assessment = None
+        try:
+            assessment = Assessment.objects.filter(
+                folder=folder,
+                assessment_type='MIDTERM'
+            ).first()
+        except:
+            pass
+        
+        # If found and has uploaded PDF, use it
+        if assessment and assessment.model_solution:
+            try:
+                # Try to open the file directly
+                try:
+                    with assessment.model_solution.open('rb') as f:
+                        pdf_bytes = f.read()
+                        if pdf_bytes and len(pdf_bytes) > 0:
+                            print(f"DEBUG: ✓ Found uploaded PDF for Midterm Model Solution from Assessment model ({len(pdf_bytes)} bytes)")
+                            return add_header_to_pdf(pdf_bytes, "Midterm Model Solution")
+                except FileNotFoundError:
+                    # Try alternative path resolution
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assessment.model_solution.name)
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            pdf_bytes = f.read()
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                print(f"DEBUG: ✓ Found uploaded PDF using alternative path ({len(pdf_bytes)} bytes)")
+                                return add_header_to_pdf(pdf_bytes, "Midterm Model Solution")
+            except Exception as e:
+                print(f"DEBUG: Error reading uploaded PDF from Assessment model: {e}")
+                import traceback
+                traceback.print_exc()
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+    
+    # SECOND: Check for uploaded PDF in outline_content
     outline_content = folder.outline_content or {}
     sol_data = outline_content.get('midtermSolution', {})
     
@@ -1863,6 +2804,49 @@ def generate_final_section(folder):
 
 def generate_final_question_paper(folder):
     """Generate the Final Question Paper PDF."""
+    
+    # FIRST: Check Assessment model for uploaded PDF file
+    try:
+        from course_folders.models import Assessment
+        # Find final assessment (usually number=1 for final)
+        assessment = None
+        try:
+            assessment = Assessment.objects.filter(
+                folder=folder,
+                assessment_type='FINAL'
+            ).first()
+        except:
+            pass
+        
+        # If found and has uploaded PDF, use it
+        if assessment and assessment.question_paper:
+            try:
+                # Try to open the file directly
+                try:
+                    with assessment.question_paper.open('rb') as f:
+                        pdf_bytes = f.read()
+                        if pdf_bytes and len(pdf_bytes) > 0:
+                            print(f"DEBUG: ✓ Found uploaded PDF for Final Question Paper from Assessment model ({len(pdf_bytes)} bytes)")
+                            return add_header_to_pdf(pdf_bytes, "Final Question Paper")
+                except FileNotFoundError:
+                    # Try alternative path resolution
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assessment.question_paper.name)
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            pdf_bytes = f.read()
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                print(f"DEBUG: ✓ Found uploaded PDF using alternative path ({len(pdf_bytes)} bytes)")
+                                return add_header_to_pdf(pdf_bytes, "Final Question Paper")
+            except Exception as e:
+                print(f"DEBUG: Error reading uploaded PDF from Assessment model: {e}")
+                import traceback
+                traceback.print_exc()
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+    
+    # SECOND: Generate PDF from outline_content data
     buffer = io.BytesIO()
     c = pdf_canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -2016,6 +3000,48 @@ def generate_final_question_paper(folder):
 def generate_final_model_solution(folder):
     """Generate or Fetch the Final Model Solution PDF."""
     
+    # FIRST: Check Assessment model for uploaded PDF file
+    try:
+        from course_folders.models import Assessment
+        # Find final assessment (usually number=1 for final)
+        assessment = None
+        try:
+            assessment = Assessment.objects.filter(
+                folder=folder,
+                assessment_type='FINAL'
+            ).first()
+        except:
+            pass
+        
+        # If found and has uploaded PDF, use it
+        if assessment and assessment.model_solution:
+            try:
+                # Try to open the file directly
+                try:
+                    with assessment.model_solution.open('rb') as f:
+                        pdf_bytes = f.read()
+                        if pdf_bytes and len(pdf_bytes) > 0:
+                            print(f"DEBUG: ✓ Found uploaded PDF for Final Model Solution from Assessment model ({len(pdf_bytes)} bytes)")
+                            return add_header_to_pdf(pdf_bytes, "Final Model Solution")
+                except FileNotFoundError:
+                    # Try alternative path resolution
+                    import os
+                    from django.conf import settings
+                    file_path = os.path.join(settings.MEDIA_ROOT, assessment.model_solution.name)
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as f:
+                            pdf_bytes = f.read()
+                            if pdf_bytes and len(pdf_bytes) > 0:
+                                print(f"DEBUG: ✓ Found uploaded PDF using alternative path ({len(pdf_bytes)} bytes)")
+                                return add_header_to_pdf(pdf_bytes, "Final Model Solution")
+            except Exception as e:
+                print(f"DEBUG: Error reading uploaded PDF from Assessment model: {e}")
+                import traceback
+                traceback.print_exc()
+    except Exception as e:
+        print(f"DEBUG: Error checking Assessment model: {e}")
+    
+    # SECOND: Check for uploaded PDF in outline_content
     outline_content = folder.outline_content or {}
     sol_data = outline_content.get('finalSolution', {})
     
@@ -2737,19 +3763,48 @@ def add_header_to_pdf(pdf_bytes, title):
     """
     Overlays a standard header onto the first page of the provided PDF.
     Dynamically adjusts to the page size of the source PDF.
+    Handles multi-page PDFs correctly.
     """
+    if not pdf_bytes or len(pdf_bytes) == 0:
+        print(f"WARNING: add_header_to_pdf received empty PDF bytes for '{title}'")
+        return pdf_bytes
+    
     try:
-        # Create the header PDF in memory
-        header_buffer = io.BytesIO()
-        
-        source_pdf = PdfReader(io.BytesIO(pdf_bytes))
-        if len(source_pdf.pages) == 0:
-            return pdf_bytes
+        # Validate PDF bytes first - use strict=False for better compatibility with complex PDFs (images, etc.)
+        try:
+            source_pdf = PdfReader(io.BytesIO(pdf_bytes), strict=False)
+            num_pages = len(source_pdf.pages)
+            print(f"DEBUG: add_header_to_pdf processing '{title}' - {num_pages} page(s), {len(pdf_bytes)} bytes")
+            
+            if num_pages == 0:
+                print(f"WARNING: PDF has no pages for '{title}', returning original bytes")
+                return pdf_bytes
+        except Exception as pdf_read_error:
+            print(f"ERROR: Failed to read PDF for '{title}': {pdf_read_error}")
+            import traceback
+            traceback.print_exc()
+            # Try reading without strict mode if that was the issue
+            try:
+                source_pdf = PdfReader(io.BytesIO(pdf_bytes))
+                num_pages = len(source_pdf.pages)
+                if num_pages == 0:
+                    return pdf_bytes
+            except Exception:
+                # If we still can't read it, return original bytes - might be corrupted but better than nothing
+                return pdf_bytes
             
         first_page = source_pdf.pages[0]
         # Get dimensions
-        page_width = float(first_page.mediabox.width)
-        page_height = float(first_page.mediabox.height)
+        try:
+            page_width = float(first_page.mediabox.width)
+            page_height = float(first_page.mediabox.height)
+        except Exception as dim_error:
+            print(f"ERROR: Failed to get page dimensions for '{title}': {dim_error}")
+            # Fallback to A4 if dimensions can't be read
+            page_width, page_height = A4
+        
+        # Create the header PDF in memory
+        header_buffer = io.BytesIO()
         
         # Now create the header canvas with the correct size
         c = pdf_canvas.Canvas(header_buffer, pagesize=(page_width, page_height))
@@ -2759,27 +3814,135 @@ def add_header_to_pdf(pdf_bytes, title):
         c.save()
         header_buffer.seek(0)
         
-        header_pdf = PdfReader(header_buffer)
-        header_page = header_pdf.pages[0]
+        try:
+            header_pdf = PdfReader(header_buffer, strict=False)
+            header_page = header_pdf.pages[0]
+        except Exception as header_error:
+            print(f"ERROR: Failed to read header PDF for '{title}': {header_error}")
+            import traceback
+            traceback.print_exc()
+            return pdf_bytes
         
-        # Merge
-        output = PdfWriter()
-        
-        # Process all pages
-        for i, page in enumerate(source_pdf.pages):
-            if i == 0:
-                # Merge header onto the first page
-                page.merge_page(header_page)
-                output.add_page(page)
-            else:
-                output.add_page(page)
+        # Use PdfMerger for better handling of complex PDFs with images
+        # First, create a merged first page, then append remaining pages
+        try:
+            # Create a temporary PDF with the merged first page
+            temp_first_page = PdfWriter()
+            try:
+                # Clone the first page to avoid modifying the original
+                first_page_copy = source_pdf.pages[0]
+                # Try to merge header - use strict=False to handle complex PDFs better
+                try:
+                    first_page_copy.merge_page(header_page, expand=False)
+                except Exception as merge_error:
+                    print(f"WARNING: merge_page failed for '{title}', trying without expand: {merge_error}")
+                    # Try again without expand parameter (older PyPDF2 versions)
+                    try:
+                        first_page_copy.merge_page(header_page)
+                    except Exception as merge_error2:
+                        print(f"WARNING: merge_page failed again for '{title}': {merge_error2}")
+                        # If merge fails completely, use original page
+                        pass
+                temp_first_page.add_page(first_page_copy)
+            except Exception as first_page_error:
+                print(f"WARNING: Failed to process first page for '{title}': {first_page_error}")
+                import traceback
+                traceback.print_exc()
+                # Fallback: add original first page without header
+                temp_first_page.add_page(source_pdf.pages[0])
+            
+            # Write the merged first page to a buffer
+            temp_buffer = io.BytesIO()
+            temp_first_page.write(temp_buffer)
+            temp_buffer.seek(0)
+            merged_first_pdf = PdfReader(temp_buffer, strict=False)
+            
+            # Now use PdfMerger to combine: merged first page + remaining pages
+            # PdfMerger handles complex PDFs (with images) better than PdfWriter
+            merger = PdfMerger(strict=False)
+            
+            # Add the merged first page
+            if len(merged_first_pdf.pages) > 0:
+                try:
+                    merger.append(merged_first_pdf)
+                except Exception as append_error:
+                    print(f"WARNING: Failed to append merged first page for '{title}': {append_error}")
+                    # Fallback: try appending original first page
+                    try:
+                        temp_original = PdfWriter()
+                        temp_original.add_page(source_pdf.pages[0])
+                        temp_orig_buffer = io.BytesIO()
+                        temp_original.write(temp_orig_buffer)
+                        temp_orig_buffer.seek(0)
+                        temp_orig_pdf = PdfReader(temp_orig_buffer, strict=False)
+                        merger.append(temp_orig_pdf)
+                    except Exception:
+                        pass
+            
+            # Add remaining pages from original PDF (skip first page)
+            if num_pages > 1:
+                # Create a temporary PDF with remaining pages
+                remaining_pages = PdfWriter()
+                for i in range(1, num_pages):
+                    try:
+                        remaining_pages.add_page(source_pdf.pages[i])
+                    except Exception as add_remaining_error:
+                        print(f"WARNING: Failed to add page {i+1} for '{title}': {add_remaining_error}")
+                        continue
                 
-        out_buffer = io.BytesIO()
-        output.write(out_buffer)
-        return out_buffer.getvalue()
+                if len(remaining_pages.pages) > 0:
+                    remaining_buffer = io.BytesIO()
+                    remaining_pages.write(remaining_buffer)
+                    remaining_buffer.seek(0)
+                    remaining_pdf = PdfReader(remaining_buffer, strict=False)
+                    try:
+                        merger.append(remaining_pdf)
+                    except Exception as append_remaining_error:
+                        print(f"WARNING: Failed to append remaining pages for '{title}': {append_remaining_error}")
+            
+            # Write final merged PDF
+            out_buffer = io.BytesIO()
+            merger.write(out_buffer)
+            merger.close()
+            result_bytes = out_buffer.getvalue()
+            
+            # Validate the result
+            if not result_bytes or len(result_bytes) == 0:
+                print(f"WARNING: add_header_to_pdf produced empty result for '{title}', returning original")
+                return pdf_bytes
+            
+            # Verify the result PDF can be read - use strict=False for complex PDFs
+            try:
+                test_reader = PdfReader(io.BytesIO(result_bytes), strict=False)
+                result_page_count = len(test_reader.pages)
+                if result_page_count != num_pages:
+                    print(f"WARNING: Page count mismatch for '{title}': expected {num_pages}, got {result_page_count}")
+                    # If we lost pages, return original to avoid corruption
+                    if result_page_count < num_pages:
+                        print(f"ERROR: Lost {num_pages - result_page_count} page(s) during merge for '{title}', returning original")
+                        return pdf_bytes
+                    # Still return the result if we have same or more pages (shouldn't happen, but log it)
+            except Exception as verify_error:
+                print(f"ERROR: Result PDF verification failed for '{title}': {verify_error}")
+                import traceback
+                traceback.print_exc()
+                # Return original if verification fails - better than corrupted PDF
+                return pdf_bytes
+            
+            print(f"DEBUG: Successfully added header to '{title}' - {len(result_bytes)} bytes, {num_pages} page(s)")
+            return result_bytes
+            
+        except Exception as write_error:
+            print(f"ERROR: Failed to write merged PDF for '{title}': {write_error}")
+            import traceback
+            traceback.print_exc()
+            return pdf_bytes
         
     except Exception as e:
-        print(f"Error adding header to PDF: {e}")
+        print(f"ERROR: Unexpected error in add_header_to_pdf for '{title}': {e}")
+        import traceback
+        traceback.print_exc()
+        # Return original bytes as fallback
         return pdf_bytes
 
 

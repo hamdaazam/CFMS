@@ -609,7 +609,7 @@ const FolderCourseLog: React.FC = () => {
           </div>
           <div className="mt-4 flex justify-center pb-4">
             <button
-              onClick={handleAddEntry}
+              onClick={() => handleAddEntry()}
               disabled={readOnly}
               aria-disabled={readOnly}
               className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-indigo-600 bg-white text-indigo-600 hover:bg-indigo-50 shadow-sm transition text-sm w-full md:w-auto ${readOnly ? 'disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed' : ''}`}

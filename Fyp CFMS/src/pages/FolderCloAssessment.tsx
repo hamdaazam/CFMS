@@ -97,9 +97,22 @@ const FolderCloAssessment: React.FC = () => {
 
   const handleFileSelect = (file: File | null) => {
     if (readOnly) return;
-    if (file && file.type !== 'application/pdf') {
-      setError('Please select a PDF file');
-      return;
+    if (file) {
+      // Check file extension and MIME type
+      const isPdfExtension = file.name.toLowerCase().endsWith('.pdf');
+      const isPdfMimeType = file.type === 'application/pdf' || file.type === '';
+      
+      if (!isPdfExtension) {
+        setError('Please select a PDF file (file must have .pdf extension)');
+        return;
+      }
+      
+      // Check file size (20MB max as per backend)
+      const maxSize = 20 * 1024 * 1024; // 20MB
+      if (file.size > maxSize) {
+        setError(`File size must not exceed 20MB. Your file is ${formatFileSize(file.size)}`);
+        return;
+      }
     }
     setSelectedFile(file);
     setError(null);
@@ -112,6 +125,18 @@ const FolderCloAssessment: React.FC = () => {
       setSaving(true);
       setError(null);
 
+      // Validate file before upload
+      if (!selectedFile.name.toLowerCase().endsWith('.pdf')) {
+        setError('Only PDF files are allowed');
+        return;
+      }
+
+      const maxSize = 20 * 1024 * 1024; // 20MB
+      if (selectedFile.size > maxSize) {
+        setError(`File size must not exceed 20MB. Your file is ${formatFileSize(selectedFile.size)}`);
+        return;
+      }
+
       // Create FormData for file upload
       const formData = new FormData();
       formData.append('file', selectedFile);
@@ -123,9 +148,37 @@ const FolderCloAssessment: React.FC = () => {
       await loadRecord();
 
       setSelectedFile(null);
+      setError(null); // Clear any previous errors on success
     } catch (err: any) {
       console.error('Error uploading CLO assessment:', err);
-      setError(err.response?.data?.error || 'Failed to upload file');
+      
+      // Extract detailed error message
+      let errorMessage = 'Failed to upload file';
+      
+      if (err.response) {
+        // Check for different error response formats
+        if (err.response.data) {
+          if (typeof err.response.data === 'string') {
+            errorMessage = err.response.data;
+          } else if (err.response.data.error) {
+            errorMessage = err.response.data.error;
+          } else if (err.response.data.message) {
+            errorMessage = err.response.data.message;
+          } else if (err.response.data.detail) {
+            errorMessage = err.response.data.detail;
+          } else if (Array.isArray(err.response.data) && err.response.data.length > 0) {
+            errorMessage = err.response.data[0];
+          } else {
+            errorMessage = `Upload failed: ${err.response.status} ${err.response.statusText}`;
+          }
+        } else {
+          errorMessage = `Upload failed: ${err.response.status} ${err.response.statusText}`;
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -379,7 +432,7 @@ const FolderCloAssessment: React.FC = () => {
                 >
                   Choose File
                 </label>
-                <p className="text-sm text-gray-500 mt-2">PDF files only, max 10MB</p>
+                <p className="text-sm text-gray-500 mt-2">PDF files only, max 20MB</p>
               </div>
 
               {selectedFile && (

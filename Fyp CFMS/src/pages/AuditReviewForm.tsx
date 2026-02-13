@@ -564,7 +564,7 @@ export const AuditReviewForm: React.FC = () => {
                     }
                     setDecision('approve');
                   }}
-                  disabled={folder?.status && ['SUBMITTED_TO_HOD', 'APPROVED_BY_HOD', 'REJECTED_BY_HOD'].includes(folder.status.toUpperCase())}
+                  disabled={!!(folder?.status && ['SUBMITTED_TO_HOD', 'APPROVED_BY_HOD', 'REJECTED_BY_HOD'].includes(folder.status.toUpperCase()))}
                   className={`flex-1 p-4 rounded-lg border-2 transition-all ${decision === 'approve'
                     ? 'border-green-500 bg-green-50'
                     : 'border-gray-300 hover:border-green-300'
@@ -592,7 +592,7 @@ export const AuditReviewForm: React.FC = () => {
                     }
                     setDecision('reject');
                   }}
-                  disabled={folder?.status && ['SUBMITTED_TO_HOD', 'APPROVED_BY_HOD', 'REJECTED_BY_HOD'].includes(folder.status.toUpperCase())}
+                  disabled={!!(folder?.status && ['SUBMITTED_TO_HOD', 'APPROVED_BY_HOD', 'REJECTED_BY_HOD'].includes(folder.status.toUpperCase()))}
                   className={`flex-1 p-4 rounded-lg border-2 transition-all ${decision === 'reject'
                     ? 'border-red-500 bg-red-50'
                     : 'border-gray-300 hover:border-red-300'
@@ -622,7 +622,7 @@ export const AuditReviewForm: React.FC = () => {
                 value={finalRemarks}
                 onChange={(e) => setFinalRemarks(e.target.value)}
                 rows={5}
-                disabled={folder?.status && ['SUBMITTED_TO_HOD', 'APPROVED_BY_HOD', 'REJECTED_BY_HOD'].includes(folder.status.toUpperCase())}
+                disabled={!!(folder?.status && ['SUBMITTED_TO_HOD', 'APPROVED_BY_HOD', 'REJECTED_BY_HOD'].includes(folder.status.toUpperCase()))}
                 className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="Provide your overall assessment and final remarks about this audit..."
                 required
@@ -655,7 +655,7 @@ export const AuditReviewForm: React.FC = () => {
                 disabled={
                   submitting || 
                   !finalRemarks.trim() || 
-                  (folder?.status && ['SUBMITTED_TO_HOD', 'APPROVED_BY_HOD', 'REJECTED_BY_HOD'].includes(folder.status.toUpperCase()))
+                  !!(folder?.status && ['SUBMITTED_TO_HOD', 'APPROVED_BY_HOD', 'REJECTED_BY_HOD'].includes(folder.status.toUpperCase()))
                 }
                 className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >

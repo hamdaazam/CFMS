@@ -102,19 +102,33 @@ class FacultyViewSet(viewsets.ModelViewSet):
         """
         Completely delete faculty and associated user from database
         """
-        faculty = self.get_object()
-        user = faculty.user
-        
-        # Delete the faculty record (this will cascade delete due to OneToOneField)
-        faculty.delete()
-        
-        # Also delete the associated user account
-        user.delete()
-        
-        return Response(
-            {'message': 'Faculty and associated user deleted successfully'},
-            status=status.HTTP_204_NO_CONTENT
-        )
+        try:
+            faculty = self.get_object()
+            if not faculty:
+                return Response(
+                    {'detail': 'Faculty not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            user = faculty.user
+            faculty_name = faculty.user.full_name if faculty.user else 'Unknown'
+            
+            # Delete the faculty record (this will cascade delete due to OneToOneField)
+            faculty.delete()
+            
+            # Also delete the associated user account
+            if user:
+                user.delete()
+            
+            return Response(
+                {'message': f'Faculty "{faculty_name}" and associated user deleted successfully'},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {'detail': f'Error deleting faculty: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class IsAdminOrStaff(permissions.BasePermission):

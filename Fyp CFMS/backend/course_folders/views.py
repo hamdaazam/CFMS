@@ -2740,7 +2740,16 @@ class CourseFolderViewSet(viewsets.ModelViewSet):
         try:
             print(f"DEBUG: Generating report for folder {folder.id}")
             # Collect all PDF sections (generated + uploaded)
-            pdf_sections = pdf_utils.collect_folder_pdfs(folder)
+            try:
+                pdf_sections = pdf_utils.collect_folder_pdfs(folder)
+            except Exception as e:
+                print(f"ERROR: Failed to collect PDF sections: {e}")
+                import traceback
+                traceback.print_exc()
+                return Response(
+                    {'error': f'Failed to collect PDF sections: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
             
             if not pdf_sections:
                 return Response(
@@ -2749,7 +2758,18 @@ class CourseFolderViewSet(viewsets.ModelViewSet):
                 )
             
             # Extract just the PDF bytes for merging
-            pdf_bytes_list = [pdf_bytes for _, pdf_bytes in pdf_sections]
+            pdf_bytes_list = []
+            for section_name, pdf_bytes in pdf_sections:
+                if pdf_bytes and len(pdf_bytes) > 0:
+                    pdf_bytes_list.append(pdf_bytes)
+                else:
+                    print(f"WARNING: Section '{section_name}' has empty or None PDF bytes")
+            
+            if not pdf_bytes_list:
+                return Response(
+                    {'error': 'No valid PDF content to merge'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             
             # Merge all PDFs
             try:
@@ -2760,6 +2780,9 @@ class CourseFolderViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             except Exception as e:
+                print(f"ERROR: Failed to merge PDFs: {e}")
+                import traceback
+                traceback.print_exc()
                 return Response(
                     {'error': f'Failed to merge PDFs: {str(e)}'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -3153,9 +3176,18 @@ class CourseFolderViewSet(viewsets.ModelViewSet):
         if file.size > 20 * 1024 * 1024:
             return Response({'error': 'File size must not exceed 20MB'}, status=status.HTTP_400_BAD_REQUEST)
         
+        # Ensure the upload directory exists
+        import os
+        from django.conf import settings
+        upload_dir = os.path.join(settings.MEDIA_ROOT, 'clo_assessments')
+        os.makedirs(upload_dir, exist_ok=True)
+        
         # Delete old file if exists
         if folder.clo_assessment_file:
-            folder.clo_assessment_file.delete(save=False)
+            try:
+                folder.clo_assessment_file.delete(save=False)
+            except Exception as e:
+                print(f"Warning: Could not delete old CLO assessment file: {e}")
         
         # Save new file
         folder.clo_assessment_file = file

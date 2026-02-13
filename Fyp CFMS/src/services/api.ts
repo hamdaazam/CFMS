@@ -1,7 +1,21 @@
 import axios from 'axios';
 
-// Base API URL - uses environment variable in production, defaults to localhost for development
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+// Base API URL - checks runtime config, environment variable, or defaults to localhost for development
+// @ts-ignore - window.APP_CONFIG is set by config.js at runtime
+const getApiBaseUrl = () => {
+  // Check for runtime config (set by config.js in dist folder)
+  if (typeof window !== 'undefined' && (window as any).APP_CONFIG?.API_BASE_URL) {
+    return (window as any).APP_CONFIG.API_BASE_URL;
+  }
+  // Check for build-time environment variable
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  // Default to localhost for development
+  return 'http://127.0.0.1:8000/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Simple in-memory cache for API responses
 interface CacheEntry {
@@ -41,6 +55,10 @@ api.interceptors.request.use(
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    // For FormData uploads, let axios set Content-Type automatically with boundary
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
     }
     return config;
   },
@@ -326,6 +344,12 @@ export const courseAllocationsAPI = {
     term?: number;
     is_active?: boolean;
   }) => api.get('/courses/allocations/coordinator-assignments/', { params }),
+  
+  // Coordinator Assignment CRUD operations
+  getCoordinatorAssignmentById: (id: number) => api.get(`/courses/coordinator-assignments/${id}/`),
+  updateCoordinatorAssignment: (id: number, data: any) => api.put(`/courses/coordinator-assignments/${id}/`, data),
+  partialUpdateCoordinatorAssignment: (id: number, data: any) => api.patch(`/courses/coordinator-assignments/${id}/`, data),
+  deleteCoordinatorAssignment: (id: number) => api.delete(`/courses/coordinator-assignments/${id}/`),
 };
 
 // Course Folders APIs
@@ -511,7 +535,8 @@ export const courseFoldersAPI = {
   // CLO Assessment File Upload/Download
   uploadCloAssessment: (id: number, formData: FormData) =>
     api.post(`/course-folders/folders/${id}/upload-clo-assessment/`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      // Don't set Content-Type manually - axios will set it with correct boundary
+      timeout: 60000, // 60 seconds timeout for file uploads
     }),
 
   downloadCloAssessment: (id: number) =>
