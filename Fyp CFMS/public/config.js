@@ -1,6 +1,6 @@
 // Runtime configuration for API URL
-// After deploying, update the API_BASE_URL below with your actual backend URL
-// Example: 'https://cfms-backend.onrender.com/api'
+// Update this file with your backend API URL before building for Netlify.
+// Example: 'https://your-backend-domain/api'
 window.APP_CONFIG = {
-  API_BASE_URL: 'https://cfms-backend.onrender.com/api'
+  API_BASE_URL: 'https://YOUR_BACKEND_DOMAIN/api'
 };

@@ -8,9 +8,11 @@ from datetime import timedelta
 import os
 
 # Initialize PyMySQL as MySQLdb replacement BEFORE Django setup
-# Only needed when using MySQL, safe to run always
+# This must be done before any Django database operations
 import pymysql
+# Force PyMySQL to be used instead of mysqlclient
 pymysql.install_as_MySQLdb()
+# Override version to satisfy Django's mysqlclient version check
 pymysql.version_info = (2, 2, 1, "final", 0)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -106,7 +108,7 @@ if DATABASE_URL:
         )
     }
 elif DB_PASSWORD:
-    # MySQL Configuration (for local MySQL setup)
+    # MySQL Configuration (for production or when MySQL is configured)
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -191,14 +193,27 @@ SIMPLE_JWT = {
 }
 
 # CORS Settings
-CORS_ALLOW_ALL_ORIGINS = True
+# Default to allowing all origins only in development.
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=DEBUG, cast=bool)
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in config(
+        'CORS_ALLOWED_ORIGINS',
+        default='http://localhost:5173,http://127.0.0.1:5173'
+    ).split(',')
+    if origin.strip()
+]
 CORS_ALLOW_CREDENTIALS = True
 
-# CSRF trusted origins for production
-CSRF_TRUSTED_ORIGINS = config(
-    'CSRF_TRUSTED_ORIGINS',
-    default='http://localhost:5173,http://127.0.0.1:5173'
-).split(',')
+# For cookie-based auth or admin in production
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in config(
+        'CSRF_TRUSTED_ORIGINS',
+        default='http://localhost:5173,http://127.0.0.1:5173'
+    ).split(',')
+    if origin.strip()
+]
 if IS_RENDER:
     CSRF_TRUSTED_ORIGINS.append('https://*.onrender.com')
 

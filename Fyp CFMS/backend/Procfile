@@ -1,0 +1,1 @@
+web: gunicorn cfms_backend.wsgi:application
